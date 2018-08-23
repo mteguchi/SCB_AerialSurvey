@@ -1,0 +1,205 @@
+---
+title: "Aerial survey sightings to sightings database"
+author: "Tomo Eguchi"
+date: "February 23, 2017"
+output: html_document
+---
+
+```{r knit_setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Editing aerial survey data
+DAS files should be edited for errors - this is often done at the end of each day. Then all DAS files are combined for a survey and written in a csv file - this was done in Matlab before. I have not translated the Matlab code into R yet as of Feb 2017. The output file should have the following columns: Date (mmddyy), Time (hhmmss), Effort (0/1), Sp (two letter species code; AerialFisheryCode), Size (s/m/l), Number, Angle, Condition (o/p/g/e), Beaufort, Latitude, Longitude, Line, Depth, PerpDist (in meters). 
+
+Depth may be dropped from this as they were extracted from a separate file. They can be added in a different step. 
+
+To be able to enter a aerial sightings file into sightings database, some editing needs to be done. The following code accomplishes that. 
+
+```{r setup}
+rm(list=ls())
+# load libraries
+sysInfo <- Sys.info()
+ifelse(sysInfo[1] == 'Linux',
+       source('~/Documents/R/TomosFunctions.R'),
+       source('~/R/TomosFunctions.R'))
+
+library(readr)
+library(lubridate)
+library(dplyr)
+
+# define the input file:
+path2file <- 'Data/tmpTurtles.txt'
+
+# define the path to the species table. This was exported from dbo_tblSpecies, 
+# which resides in MMTD databases
+path2SpTable <- 'Data/dbo_tblSpecies.txt'
+
+# define the output file name
+outputfile <- 'Data/aerial_sightings_Feb2017.csv'
+save.output <- F
+```
+
+Paths may have to be changed. Data are read in the next step. Then date and time formats are converted into more conventional formats. 
+
+```{r ReadData}
+# define column types for the input file.
+col.types.in <- cols(Date = col_character(),
+                     Time = col_character(),
+                     Effort = col_integer(),
+                     Sp = col_character(),
+                     Size = col_character(),
+                     Number = col_integer(),
+                     Angle = col_double(),
+                     Condition = col_character(),
+                     Beaufort = col_integer(),
+                     Latitude = col_double(),
+                     Longitude = col_double(),
+                     Line = col_character(),
+                     Depth = col_double(),
+                     PerpDist = col_double())
+
+data.raw <- readr::read_csv(path2file, col_types = col.types.in)
+# convert the date column
+data.raw$Date <- lubridate::mdy(data.raw$Date)
+
+# Write out date with 0 prefix into a new variable
+data.raw$Date2 <- paste0(formatC(YMD2Y(data.raw$Date),
+                                 width = 2, flag = '0'),
+                         formatC(YMD2m(data.raw$Date),
+                                 width = 2, flag = '0'),
+                         formatC(YMD2d(data.raw$Date),
+                                 width = 2, flag = '0'))
+
+# convert species code into upper case
+data.raw$Sp <- toupper(data.raw$Sp)
+
+# read the species table and look up appropriate species code:
+col.types.SpTable <- cols(ID = col_integer(),
+                          TaxanomicOrder = col_character(),
+                          SubOrder = col_character(),
+                          InfraOrder = col_character(),
+                          Family = col_character(),
+                          FamilyCommonName = col_character(),
+                          Genus = col_character(),
+                          Species = col_character(),
+                          Subspecies = col_character(),
+                          CommonName = col_character(),
+                          NomenclatureAuthority = col_character(),
+                          SpType = col_character(),
+                          SpName = col_character(),
+                          CetaceanCode = col_character(),
+                          AerialFisheryCode = col_character(),
+                          BirderCode = col_character(),
+                          AlternateCode1 = col_character(),
+                          AlternateCode2 = col_character(),
+                          Comments = col_character(),
+                          EditDate = col_datetime(format = '%m/%d/%Y %H:%M:%S'),
+                          EditUserID = col_character(),
+                          RecordCreationDate = col_character())
+
+# needed to use ';' as the delimiter as a field contains commas. Also,
+# needed to delete ';' on line 116 in a field.
+sp.table <- readr::read_csv2(path2SpTable,
+                             col_types = col.types.SpTable)
+```
+
+Once sightings data and species definition table are read, we combine these two so that we provide correct species codes (numeric) to sightings. Note that the sightings database does not accept character species code. We also define sighting numbers. this may become a bit tricky if sightings other than aerial survey occur in the same day. Be careful with filling them in. 
+
+```{r tweakData}
+#sp.table$CetaceanCode <- as.factor(sp.table$CetaceanCode)
+#sp.table$AerialFisheryCode <- as.factor(sp.table$AerialFisheryCode)
+
+### Using pipes and right join to do many to many merging:
+# Pull out just ID and AerialfisheryCode from the species table
+# remove NA entries - select seems to pull out all NA rows
+# join sp.table (x) that becomes x in right_join, and data.raw (which is y and 'right')
+# join left one (selected sp.table) to the right one (data.raw) using 'AerialFisheryCode'
+# and 'Sp' from the two, respectively. Left and right sides in the by input is
+# important. Then rename ID into Sp_ID - the new name comes first, kinda strange.
+data.raw <- dplyr::select(sp.table, ID, AerialFisheryCode) %>%
+  na.omit() %>%
+  dplyr::right_join(y = data.raw, by = c('AerialFisheryCode' = 'Sp')) %>%
+  dplyr::rename(Sp_ID = ID)
+
+# fill in the sightings numbers:
+unique.dates <- unique(data.raw$Date2)
+data.raw$Sighting_Number <- 0
+for (k in 1:length(unique.dates)){
+  tmp <- subset(data.raw, Date2 == unique.dates[k])
+  for (k1 in 1:nrow(tmp)){
+    tmp$Sighting_Number[k1] <- paste0(unique.dates[k], '-', k1)
+  }
+  data.raw[data.raw$Date2 == unique.dates[k], 'Sighting_Number'] <- tmp$Sighting_Number
+}
+
+# convert the time format 
+data.raw$Time <- hhmmss2hms(data.raw$Time)
+
+```
+
+Once all data are merged, i.e., sightings and species numeric code and sighting numbers, define an output file with all fields that exist in the sightings database. Then export it to a csv file. 
+
+```{r writeFile}
+df.out <- tibble(Cruise_Number = NA,
+                 Observer_Number = NA,
+                 Effort = NA,
+                 Water_Temperature = NA,
+                 Bearing = NA,
+                 Distance = NA,
+                 Animal_Count = data.raw$Number,
+                 JFR = NA,
+                 Reticle = NA,
+                 Captured = NA,
+                 Date_Observed = format(data.raw$Date, '%m/%d/%Y'),
+                 Date_Approximate = 'N',
+                 Time_Observed = paste('"', data.raw$Time, '"', sep = ""),
+                 Sighting_Number = data.raw$Sighting_Number,
+                 Observed_By = NA,
+                 Observed_By_Type = NA,
+                 Observed_By_Organization_ID = NA,
+                 Observed_By_Phone = NA,
+                 Observed_By_Email = NA,
+                 Diagnostic_Features = NA,
+                 Observation_Description = paste0('"', 'Aerial Survey', '"'),
+                 Behavior = NA,
+                 Injuries_Description = NA,
+                 Entanglement_Description = NA,
+                 Estimated_Size = NA,
+                 Length_Of_Time = NA,
+                 Species_ID = data.raw$Sp_ID,
+                 Digital_Photos_Taken = NA,
+                 Species_Verified_By = NA,
+                 Biopsy = NA,
+                 Age = NA,
+                 Sex = NA,
+                 Tail_Beyond_Carapace = NA,
+                 Tags_Description = NA,
+                 Tag_Scars_Description = NA,
+                 Final_Disposition = NA,
+                 Island_ID = NA,
+                 City_ID = NA,
+                 County_ID = NA,
+                 State_ID = NA,
+                 Country_ID = NA,
+                 Locality_Details = NA,
+                 Latitude = data.raw$Latitude,
+                 Latitude_Precision = 0.00001,
+                 Latitude_Precision_Units = 'Degree',
+                 Longitude = data.raw$Longitude,
+                 Longitude_Precision = 0.00001,
+                 Longitude_Precision_Units = 'Degree',
+                 Lat_Long_Determined_By = 'GPS')
+
+if (save.output) write_csv(df.out, path = outputfile)
+
+```
+
+Once the file is written, the file needs to be edited before it can be pasted into the sightings database using Access. 
+1. Remove all NAs - select NAs and replace them with ""
+2. Replace three double quation marks (""") with just one ("). This happens with the paste0() function. Not sure why it does that but it does around time and Aerial Survey
+3. Replace 1e-5 with 0.00001
+4. Make sure to remove any entry that may cause duplicated entries 
+
+Then, in Access, use Import- text file and follow the steps. Make sure to select a double quotation mark (") as the text qualifier. This should work.
+

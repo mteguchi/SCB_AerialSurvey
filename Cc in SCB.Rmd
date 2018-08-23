@@ -1,0 +1,102 @@
+---
+title: "Loggerhead turtles in the Southern California Bight"
+author: "Tomo Eguchi"
+date: '`r Sys.Date()`'
+output: word_document
+---
+
+```{r loadLibraries, cache=TRUE, echo=FALSE, message=FALSE}
+rm(list=ls())   # clear the workspace
+library(Distance)
+library(ggplot2)
+# load my functions
+sysInfo <- Sys.info()
+ifelse(sysInfo[1] == 'Linux',
+       source('~/Documents/R/TomosFunctions.R'),
+       source('~/R/TomosFunctions.R'))
+```
+
+#Introduction
+The loggerhead turtle (Caretta caretta) distributes widely in all major ocean basins. Nine distinct population segments have been defined around the world (BRT report). The North Pacific distinct population segment (DPS) is considered "endangered" under the Endangered Species Act of the US (ESA 1974). 
+
+The North Pacific DPS almost exclusively originates from Japan (refs) and distributes widely in the North Pacific Ocean (refs). Along the eastern border of the North Pacific, a high density of loggerhead turtles have been reported along the coast of the Baja peninsula, Mexico (refs). Several studies have conducted to determine density, movements, and size distributions in the area (refs). Along the west coast of the US, however, less is known about loggerhead turtles. 
+
+Loggerhead turtles have been found stranded along the west coast (refs) as well as  incidentally caught in fishing operations (refs). Loggerhead turtles do not exist in high density along the US coast. However, the observed incidental catch of loggerhead turtles have prompted a time-area closure of drift gillnet fishery in the Southern California Bight (SCB) when either El Nino condition exists or forecasted (Federal Register). When the regulation was put in place, it was thought that the loggerhead turtles in the bight were from Baja, Mexico. A study using stable isotope signatures, however, revealed that the loggerhead turtles in the SCB are likely entering the area from the central Pacific, rather than from Baja (Allen et al. 2013?).
+
+During a ship-based marine mammal survey during the autumn and winter 2014, tens of juvenile loggerhead turtles were found in the California current outside of the bight (ref). At that time, El Nino was forecasted to strengthen over the next 12 to 20 (?) months (ref). Expecting a high density of loggerhead turtles in the bight, we planned an aerial survey for the autumn of 2015 to estimate density and distribution of loggerhead turtles in the SCB.
+
+Objectives of this study were (1) to describe the ocean conditions in the SCB during the autumn of 2015 using the remote-sesning data and ship-board oceanography survey, (2) to estimate the density of loggerhead turtles in the SCB during the autumn 2015, (3) to determine the relationships between the density of loggerhead turtles and environmental variables, and (4) to predict the distribution of loggerhead turtles in the un-surveyed areas within the SCB during the autumn of 2015. 
+
+#Methods
+The study area encompassed the Southern California Bight and the adjacent area in the California current ecosystem (Figure 1). Transect lines were laid at an angle that made the lengths of the lines manageable from the coast line. The first line was drawn randomly and subsequent lines were separated by 0.2 degrees in latitude. 
+
+A NOAA DeHavillant Twin-Otter was flown at approximately 500 ft (~152 m) above the sea level at 100 knots (~185 km/h). Three observers (Two at side front bubble windows and one at the belly window) searched for turtles, marine mammals, and large fishes over the transect lines. When an animal was sighted, the angle to the animal was determined using a clinometer at front bubble windows and through predetermined lines on the belly window. A data recorder recorded the species, the angle, and the number of animals in a laptop computer using a purpose-build data collection software (Forney yr), which recorded locations of the airplane via a GPS every 10 seconds. Environmental conditions, including cloud cover, direction of the sun, Beaufort sea state, and glare, also were recorded at the beginning of each transect line and whenever the conditions changed.  
+
+Angle and altitude data were used to compute the distance from the trackline for each sighting. The distance data then were used to determine the detection function as described in Buckland et al. (yr). 
+
+```{r loadData, cache = TRUE, echo=FALSE, message=FALSE}
+turtleData <- read.table('Data/tmpTurtles.txt', 
+                         header = TRUE, sep=",")
+ccData <- subset(turtleData, Sp == 'cc')
+ccDataOn <- subset(ccData, Effort == 1)
+#names(ccDataOn)[names(ccDataOn) == "PerpDist"] <- "distance"
+ccDataOn$distance <- ccDataOn$PerpDist/1000
+
+# transect effort data:
+effortData <- read.table('Data/tmpTracks.txt', 
+                         header = TRUE, sep = ",")
+lineIDs <- unique(effortData$Line)
+
+effortByLine <- vector(mode = "numeric", 
+                       length = length(lineIDs))
+for (k in 1:length(lineIDs)){
+  effortByLine[k] <- nm2km(sum(effortData$Distance[effortData$Line == lineIDs[k]]))
+}
+#effort.df <- data.frame(Sample.Label = lineIDs,
+#                        Effort = effortByLine)
+```
+
+
+
+```{r distanceRun1, cache = TRUE, echo=FALSE, message=FALSE}
+# Add transect line number to the input data file - Sample.Label in obs.table
+# Create a file with lengths of lines - Effort in sample.table
+region <- data.frame(Region.Label = "SCB", Area = 113780)
+obs <- data.frame(Region.Label = "SCB", 
+                  object = seq(1, dim(ccDataOn)[1]),
+                  Sample.Label = ccDataOn$Line)
+sample <- data.frame(Sample.Label = lineIDs,
+                     Region.Label = "SCB",
+                     Effort = effortByLine)
+run1 <- ds(data = ccDataOn, 
+           truncation="15%",
+           key = "hr", 
+           region.table = region,
+           sample.table = sample,
+           obs.table = obs)
+
+gof.run1 <- ds.gof(run1)
+
+```
+
+
+##Effects of environment
+To determine effects of environment on the observed distribution of loggerhead turtles in the SCB, we regressed the estimated density of loggerhead turtles to various environmental variables. We seleted the following variables based on our knowledge of the species; sea surface temperature, sea surface height, chlorophyll a concentration, current, ...  These data were obtained from a data portal at NOAA. We also used derived oceanographic products available through ocean circulation models. 
+
+##Modeling approach
+We used multiple modeling approaches to relate oceanographic conditions to the observed loggerhead presence and estimated density. 
+
+Random Forests logistic regression for variable selection? 
+
+First, we used the occupancy modeling approach of McKenzie et al. (yr). This approach does not take into account of distance data, i.e., sighting probability from the track line is not modeled. Sightings are treated as simple presence/absence data. Within each sampling unit (this is decided by the resolution of environmental data), sighting probability is modeled with the Beaufort sea state and viewing conditions, whereas enviornmental variables (selected via Random Forest) were used as occupancy covariates. The best model then was used to predict the occupancy of unsurveyed areas based on enviornmental conditions. (package unmarked)
+
+Second, to incorporate the information on distance sampling data, we used distance sampling analyses. Multiple covaraites were used to model sighting probabilities as it was done for the occupancy modeling. For this analysis, relationships between density and enviornmental variables were investigate using the generalized additive models using the dsm package in R (Miller et al.).
+
+```{r dsm_analysis, cache = T, echo = F, message = F}
+# this chunk comes from CcSCB_DSM_analysis.R
+
+
+```
+
+Third, a new approach to distance sampling data (DSpat package) by D. Johnson et al. was used as a comparison. This analysis takes into account of relationships between density and environmental conditions. 
+
