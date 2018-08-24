@@ -21,7 +21,7 @@ library(geosphere)
 library(rgeos)
 
 save.image <- F
-save.data <- T
+save.data <- F
 dpi <- 600
 SanClemente <- 'N'
 

@@ -1,0 +1,104 @@
+---
+title: "Extend capture area track lines"
+output: html_notebook
+---
+
+This notebook contains code to extend the aerial track lines within the "Capture Area" for loggerhead turtles in the SCB. First bring in the fixed lines and other dataframes that were created in "CaptureArea.R".
+
+```{r}
+rm(list=ls())
+
+library(dplyr)
+library(ggplot2)
+library(geosphere)
+
+save.data <- T
+save.fig <- T
+
+ifelse(Sys.info()[1] == 'Linux',
+       source('~/Documents/R/tools/TomosFunctions.R'),
+       source('~/R/tools/TomosFunctions.R'))
+
+study.area <- readRDS(file = "RDSfiles/SearchArea_2018-08-24.rds")
+coast.line <- readRDS(file = "RDSfiles/CoastLine_2018-08-24.rds")
+transect.lines <- readRDS(file = "RDSfiles/TransectLines_2018-08-24.rds") %>%
+  filter(lineID != 12 & lineID != 14)
+# Montgomery-Gibbs airport location:
+MYF <- data.frame(lat = 32.8158, lon = -117.1394)
+```
+
+Then, from the western ends of all track lines, add 30 nm.
+
+```{r}
+# find Rhumb line for each line - should be the same?
+bearing.lines <- bearingRhumb(transect.lines[, c("lonInshore", "latInshore")],
+                          transect.lines[, c("lonOffshore", "latOffshore")])
+
+offshore.points <- destPointRhumb(transect.lines[, c("lonOffshore", "latOffshore")],
+                                  bearing.lines, rep(1000*nm2km(30), length(bearing.lines)))
+
+offshore.segments <- cbind(select(transect.lines, latOffshore, lonOffshore),
+                           offshore.points) %>%
+  transmute(lineID = seq(from = 15, length.out = length(bearing.lines)),
+            lat1 = latOffshore, 
+            lon1 = lonOffshore,
+            lat1.deg = trunc(lat1),
+            lat1.min = (lat1 - lat1.deg) * 60,
+            lon1.deg = -trunc(abs(lon1)),
+            lon1.min = (abs(lon1) - trunc(abs(lon1))) * 60,
+            lat2 = lat,
+            lon2 = lon,
+            lon2.deg = -trunc(abs(lon2)),
+            lon2.min = (abs(lon2) - trunc(abs(lon2))) * 60) 
+
+
+if (save.data)
+  write.csv(offshore.segments,
+            file = "data/offshoreSegments.csv",
+            quote = F, row.names = F)
+
+```
+
+plot to see if they look okay
+```{r}
+land.color <- '#333333'
+
+p.1 <- ggplot() +
+  geom_polygon(fill = land.color,
+               data = coast.line,
+               aes(x = X, y = Y, group = idx))  +
+  geom_polygon(data = study.area,
+               aes(x = X, y = Y),
+               fill = NA, size = 1.2,
+               alpha = 0.6,
+               color='black') +
+  geom_segment(data = transect.lines,
+               aes(x = lonInshore, y = latInshore,
+                   xend = lonOffshore, yend = latOffshore),
+               size = 1.0) +
+  geom_text(data = transect.lines,
+            aes(x = lonOffshore,
+                y = latOffshore, label = lineID),
+            color = 'firebrick1',
+            fontface = "bold")+
+  geom_segment(data = offshore.segments,
+               aes(x = lon1, y = lat1,
+                   xend = lon2, yend = lat2),
+               size = 1.0) +
+  geom_text(data = offshore.segments,
+            aes(x = lon2,
+                y = lat2, label = lineID),
+            color = 'firebrick1',
+            fontface = "bold")+
+
+    coord_map() +
+  xlab('') + ylab('')
+
+p.1
+if (save.fig)
+  ggsave(p.1,
+         filename = "figures/extended_tracklines.png",
+         device = "png", dpi = 600)
+
+```
+
