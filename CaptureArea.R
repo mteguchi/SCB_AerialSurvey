@@ -21,6 +21,7 @@ library(geosphere)
 library(rgeos)
 
 save.image <- F
+save.data <- T
 dpi <- 600
 SanClemente <- 'N'
 
@@ -220,6 +221,14 @@ p1 <- ggplot() +
   coord_map() +
   xlab('') + ylab('')
 
+if (save.data){
+  saveRDS(search.area,
+          file = paste0("RDSfiles/SearchArea_", Sys.Date(), ".rds"))
+  saveRDS(transect.lines.latlon,
+          file = paste0("RDSfiles/TransectLines_", Sys.Date(), ".rds"))
+  saveRDS(all.coast.line.df,
+          file = paste0("RDSfiles/CoastLine_", Sys.Date(), ".rds"))
+}
 
 
 if (save.image) {
