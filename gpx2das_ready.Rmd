@@ -18,10 +18,10 @@ ifelse(Sys.info()[1] == 'Linux',
 Now try to read in the gpx file, change the zulu time into local time, and filter just one day's effort. This file contains all the old tracks from east coast also. 
 
 ```{r}
-layers <- ogrListLayers("data/gpx files/2018-08-22_13-05-15 iSailGPS_Track.gpx")
+layers <- ogrListLayers("data/gpx files/2018-08-25_16-16-23 iSailGPS_Track.gpx")
 
 # third layer is tracks
-tracks_all <- readOGR(dsn = "data/gpx files/2018-08-22_13-05-15 iSailGPS_Track.gpx",
+tracks_all <- readOGR(dsn = "data/gpx files/2018-08-25_16-16-23 iSailGPS_Track.gpx",
                       layer = "track_points")
 
 # get time and elevation
