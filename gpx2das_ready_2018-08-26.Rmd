@@ -1,0 +1,197 @@
+---
+title: "Reading gpx files"
+output: html_notebook
+---
+
+Trying to convert a gpx file into a dataframe. The survey on 22 August 2018 was conducted without having a laptop - no AC outlet on the plane... so, I recorded the track on my phone using iSailGPS app. The track was exported into a GPX file and emailed to myself. Now trying to convert it to sightings data as they would come out from carretta.
+
+```{r}
+rm(list=ls())
+library(rgdal)
+library(dplyr)
+library(lubridate)
+ifelse(Sys.info()[1] == 'Linux',
+       source('~/Documents/R/tools/TomosFunctions.R'),
+       source('~/R/tools/TomosFunctions.R'))
+
+```
+
+Now try to read in the gpx file, change the zulu time into local time, and filter just one day's effort. This file contains all the old tracks from east coast also. 
+
+```{r}
+layers <- ogrListLayers("Data/gpx files/2018-08-26_15-59-40 iSailGPS_Track.gpx")
+
+# third layer is tracks
+tracks_all <- readOGR(dsn = "Data/gpx files/2018-08-26_15-59-40 iSailGPS_Track.gpx",
+                      layer = "track_points")
+
+# get time and elevation
+data_time_elev <- tracks_all@data %>%
+  select(ele, time)
+
+# get the coordinates
+data_coord <- tracks_all@coords
+
+# combine them together and rename column names
+data_coord_time_elev <- cbind(data_time_elev, data_coord)
+colnames(data_coord_time_elev) <- c("Elev", "Date_Time", "Longitude", "Latitude")
+
+# strptime returns POSIXlt, which is not filter-able below. So, use
+# as.POSIXct.
+data_coord_time_elev$Date_Z <- as.POSIXct(data_coord_time_elev$Date_Time,
+                                          format = "%Y/%m/%d %H:%M:%S", 
+                                          tz = "UTC") 
+data_coord_time_elev$Date_local <- with_tz(data_coord_time_elev$Date_Z, 
+                                           tzone = "America/Los_Angeles")
+
+# took off around 12:27
+data_20180826 <- filter(data_coord_time_elev,
+                        Date_local > as.POSIXct("2018-08-26 12:27:00", 
+                                             format = "%Y-%m-%d %H:%M:%S")) %>%
+  select(Date_local, Latitude, Longitude)
+
+```
+
+Need to read in sightings and on/off effort data here. Then combine with track line data.
+```{r}
+sightings.data <- read.csv(file = "data/Data_2018-08-26.csv",
+                           header = TRUE) %>% # Convert date/time
+  mutate(Date_local = as.POSIXct(paste(date, 
+                                       time, 
+                                       sep = " "),
+                                 format = "%m/%d/%Y %H:%M:%S",
+                                 tz = "America/Los_Angeles")) %>%
+  select(Date_local, event, comment)
+
+```
+
+Need to add latitude/longitude to sightings data then sort by date/time.
+
+```{r}
+k <- 1
+sightings.data$Latitude <- NA
+sightings.data$Longitude <- NA
+for (k in 1:nrow(sightings.data)){
+  date.time <- sightings.data[k, "Date_local"]
+  loc <- filter(data_20180826, Date_local >= date.time - 1 & Date_local <= date.time + 1)
+  if (nrow(loc) == 1){
+    sightings.data[k, c("Latitude", "Longitude")] <- loc[1, c("Latitude", "Longitude")]
+  } else if (nrow(loc) > 1){
+    sightings.data[k, c("Latitude", "Longitude")] <- colMeans(loc[, c("Latitude", "Longitude")])
+  } 
+}
+
+data_20180826$event <- "*"
+data_20180826$comment <- ""
+
+sightings.data %>% select(event, Date_local, Latitude, Longitude, comment) -> sightings.data
+data_20180826 %>% select(event, Date_local, Latitude, Longitude, comment) -> data_20180826
+
+data_all <- rbind(sightings.data, data_20180826)
+data_sorted <- data_all[order(data_all$Date_local),]
+```
+
+Then, write the data into a file. Break down each piece of information into the required format.
+
+```{r}
+
+sink("data/das files/SCB2018_DAS.826")
+k<-1
+c <- 1
+on.effort <- F
+time1 <- data_sorted[1, "Date_local"]
+for (k in 1:nrow(data_sorted)){
+  data.1 <- data_sorted[k,]
+  event.code <- data.1$event
+  
+  if (event.code != "*"){
+    line.number <- sprintf("%3d", c)
+    c <- c + 1
+    if (event.code == "T" | event.code == "R") on.effort <- T
+    if (event.code == "O" | event.code == "E") on.effort <- F
+    
+    effort <- ifelse(on.effort, ".", " ")
+    
+    time <- paste0(formatC(hour(data.1$Date_local), width = 2, flag = 0),
+                   formatC(minute(data.1$Date_local), width = 2, flag = 0),
+                   formatC(second(data.1$Date_local), width = 2, flag = 0), " ")
+    date <- paste0(formatC(month(data.1$Date_local), width = 2, flag = 0),
+                   formatC(day(data.1$Date_local), width = 2, flag = 0),
+                   "18 ")
+    
+    latitude <- paste0("N", floor(data.1$Latitude), ":",
+                       formatC(((data.1$Latitude - floor(data.1$Latitude)) * 60), 
+                               width = 5, flag = 0, format = "f", digits = 2), " ")
+    
+    longitude <- paste0("W", floor(abs(data.1$Longitude)), ":",
+                        formatC(((abs(data.1$Longitude) - floor(abs(data.1$Longitude))) * 60), 
+                                width = 5, flag = 0, format = "f", digits = 2), " ")
+    
+    if (event.code == "T"){
+      str.data <- data.1$comment
+    } else if (event.code == "V"){
+      str.data <- formatC(unlist(strsplit(as.character(data.1$comment), 
+                                          ";")), width = 5)
+    } else if (event.code == "P"){
+      str.data <- formatC(unlist(strsplit(as.character(data.1$comment), ";")), 
+                          width = 5)
+    } else if (event.code == "A"){
+      str.data <- formatC(unlist(strsplit(as.character(data.1$comment), ";")), 
+                          width = 5)
+    } else if (event.code == "W") {
+      str.data <- formatC(unlist(strsplit(as.character(data.1$comment), ";")), 
+                          width = 5)
+    } else if (event.code == "S"){
+      str.data <- formatC(unlist(strsplit(as.character(data.1$comment), ";")), 
+                          width = 5)
+    } else if (event.code == "C"){
+      str.data <- data.1$comment
+    } else if (event.code == "t"){
+      str.data <- formatC(unlist(strsplit(as.character(data.1$comment), ";")), 
+                          width = 5)
+    } else {
+      str.data <- ""
+    }
+    out.line <- paste0(line.number, event.code, effort,
+                     time, date, latitude, longitude, 
+                     paste(str.data, sep = "", collapse = ""),
+                     "\n")
+    cat(out.line)
+  } else {
+    time2 <- data_sorted[k, "Date_local"]
+    dt <- time2 - time1
+    if (dt > duration(minute = 1)){
+      line.number <- sprintf("%3d", c)
+      time1 <- time2
+      effort <- ifelse(on.effort, ".", " ")
+      
+      time <- paste0(formatC(hour(data.1$Date_local), width = 2, flag = 0),
+                     formatC(minute(data.1$Date_local), width = 2, flag = 0),
+                     formatC(second(data.1$Date_local), width = 2, flag = 0), " ")
+      date <- paste0(formatC(month(data.1$Date_local), width = 2, flag = 0),
+                     formatC(day(data.1$Date_local), width = 2, flag = 0),
+                     "18 ")
+      
+      latitude <- paste0("N", floor(data.1$Latitude), ":",
+                         formatC(((data.1$Latitude - floor(data.1$Latitude)) * 60), 
+                                 width = 5, flag = 0, format = "f", digits = 2), " ")
+      
+      longitude <- paste0("W", floor(abs(data.1$Longitude)), ":",
+                          formatC(((abs(data.1$Longitude) - floor(abs(data.1$Longitude))) * 60), 
+                                  width = 5, flag = 0, format = "f", digits = 2), " ")
+      str.data <- ""
+      c <- c + 1
+      out.line <- paste0(line.number, event.code, effort,
+                     time, date, latitude, longitude, 
+                     paste(str.data, sep = "", collapse = ""),
+                     "\n")
+      cat(out.line)
+    }
+  }
+
+}
+sink()
+
+```
+
+
