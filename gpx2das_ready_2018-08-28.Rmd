@@ -3,7 +3,7 @@ title: "Reading gpx files"
 output: html_notebook
 ---
 
-Trying to convert a gpx file into a dataframe. The survey on 22 August 2018 was conducted without having a laptop - no AC outlet on the plane... so, I recorded the track on my phone using iSailGPS app. The track was exported into a GPX file and emailed to myself. Now trying to convert it to sightings data as they would come out from carretta.
+Fixing DAS file for 28 August 2018 because the GPS was not functioning properly between 12:47:00 and 12:53:19.
 
 ```{r}
 rm(list=ls())
@@ -19,10 +19,10 @@ ifelse(Sys.info()[1] == 'Linux',
 Now try to read in the gpx file, change the zulu time into local time, and filter just one day's effort. This file contains all the old tracks from east coast also. 
 
 ```{r}
-layers <- ogrListLayers("Data/gpx files/2018-08-26_15-59-40 iSailGPS_Track.gpx")
+layers <- ogrListLayers("Data/gpx files/2018-08-28_15-22-02 iSailGPS_Track.gpx")
 
 # third layer is tracks
-tracks_all <- readOGR(dsn = "Data/gpx files/2018-08-26_15-59-40 iSailGPS_Track.gpx",
+tracks_all <- readOGR(dsn = "Data/gpx files/2018-08-28_15-22-02 iSailGPS_Track.gpx",
                       layer = "track_points")
 
 # get time and elevation
@@ -45,50 +45,78 @@ data_coord_time_elev$Date_local <- with_tz(data_coord_time_elev$Date_Z,
                                            tzone = "America/Los_Angeles")
 
 # took off around 12:27
-data_20180826 <- filter(data_coord_time_elev,
-                        Date_local > as.POSIXct("2018-08-26 12:27:00", 
-                                             format = "%Y-%m-%d %H:%M:%S")) %>%
+data_20180828 <- filter(data_coord_time_elev,
+                        Date_local > as.POSIXct("2018-08-28 12:46:38", 
+                                             format = "%Y-%m-%d %H:%M:%S") &
+                        Date_local < as.POSIXct("2018-08-28 12:53:19", 
+                                             format = "%Y-%m-%d %H:%M:%S")  ) %>%
   select(Date_local, Latitude, Longitude)
 
 ```
 
-Need to read in sightings and on/off effort data here. Then combine with track line data.
+Check what we missed - date-time combos are...
 ```{r}
-sightings.data <- read.csv(file = "data/Data_2018-08-26.csv",
-                           header = TRUE) %>% # Convert date/time
-  mutate(Date_local = as.POSIXct(paste(date, 
-                                       time, 
-                                       sep = " "),
-                                 format = "%m/%d/%Y %H:%M:%S",
-                                 tz = "America/Los_Angeles")) %>%
-  select(Date_local, event, comment)
+missed.time <- c("2018-08-28 12:48:00",
+                 "2018-08-28 12:48:40",
+                 "2018-08-28 12:48:53",
+                 "2018-08-28 12:49:00",
+                 "2018-08-28 12:49:44",
+                 "2018-08-28 12:50:00",
+                 "2018-08-28 12:50:43",
+                 "2018-08-28 12:50:58",
+                 "2018-08-28 12:51:00",
+                 "2018-08-28 12:52:00",
+                 "2018-08-28 12:53:00",
+                 "2018-08-28 12:53:07")
+
+lat.deg <- lat.min <- vector(mode = "numeric", length = length(missed.time))
+lon.deg <- lon.min <- vector(mode = "numeric", length = length(missed.time))
+
+k <- 1
+for (k in 1:length(missed.time)){
+  time1 <- as.POSIXct(missed.time[k],format = "%Y-%m-%d %H:%M:%S") - duration(2, units = "seconds")
+  time2 <- as.POSIXct(missed.time[k],format = "%Y-%m-%d %H:%M:%S") + duration(2, units = "seconds")
+  data_20180828 %>% filter(Date_local > time1 & Date_local < time2) -> tmp
+  
+    lat.deg[k] <- floor(tmp$Latitude[1])
+    lat.min[k] <- (tmp$Latitude[1] - lat.deg[k])*60
+    lon.deg[k] <- floor(abs(tmp$Longitude[1]))
+    lon.min[k] <- (abs(tmp$Longitude[1]) - lon.deg[k])*60
+    
+}
+
 
 ```
 
 Need to add latitude/longitude to sightings data then sort by date/time.
 
 ```{r}
+# also another a few lines...
+data_20180828 <- filter(data_coord_time_elev,
+                        Date_local > as.POSIXct("2018-08-28 14:19:18", 
+                                             format = "%Y-%m-%d %H:%M:%S") &
+                        Date_local < as.POSIXct("2018-08-28 14:20:40", 
+                                             format = "%Y-%m-%d %H:%M:%S")  ) %>%
+  select(Date_local, Latitude, Longitude)
+
+missed.time <- c("2018-08-28 14:20:00",
+                 "2018-08-28 14:20:24")
+
+lat.deg <- lat.min <- vector(mode = "numeric", length = length(missed.time))
+lon.deg <- lon.min <- vector(mode = "numeric", length = length(missed.time))
+
 k <- 1
-sightings.data$Latitude <- NA
-sightings.data$Longitude <- NA
-for (k in 1:nrow(sightings.data)){
-  date.time <- sightings.data[k, "Date_local"]
-  loc <- filter(data_20180826, Date_local >= date.time - 1 & Date_local <= date.time + 1)
-  if (nrow(loc) == 1){
-    sightings.data[k, c("Latitude", "Longitude")] <- loc[1, c("Latitude", "Longitude")]
-  } else if (nrow(loc) > 1){
-    sightings.data[k, c("Latitude", "Longitude")] <- colMeans(loc[, c("Latitude", "Longitude")])
-  } 
+for (k in 1:length(missed.time)){
+  time1 <- as.POSIXct(missed.time[k],format = "%Y-%m-%d %H:%M:%S") - duration(2, units = "seconds")
+  time2 <- as.POSIXct(missed.time[k],format = "%Y-%m-%d %H:%M:%S") + duration(2, units = "seconds")
+  data_20180828 %>% filter(Date_local > time1 & Date_local < time2) -> tmp
+  
+  lat.deg[k] <- floor(tmp$Latitude[1])
+  lat.min[k] <- (tmp$Latitude[1] - lat.deg[k])*60
+  lon.deg[k] <- floor(abs(tmp$Longitude[1]))
+  lon.min[k] <- (abs(tmp$Longitude[1]) - lon.deg[k])*60
+    
 }
-
-data_20180826$event <- "*"
-data_20180826$comment <- ""
-
-sightings.data %>% select(event, Date_local, Latitude, Longitude, comment) -> sightings.data
-data_20180826 %>% select(event, Date_local, Latitude, Longitude, comment) -> data_20180826
-
-data_all <- rbind(sightings.data, data_20180826)
-data_sorted <- data_all[order(data_all$Date_local),]
 ```
 
 Then, write the data into a file. Break down each piece of information into the required format.

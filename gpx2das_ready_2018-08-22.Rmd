@@ -94,7 +94,7 @@ Then, write the data into a file. Break down each piece of information into the 
 
 ```{r}
 
-sink("data/das files/SCB2018_DAS.822")
+sink("data/das files/SCB2018_DAS_1.822")
 k<-1
 c <- 1
 on.effort <- F
@@ -124,10 +124,10 @@ for (k in 1:nrow(data_sorted)){
     
     longitude <- paste0("W", floor(abs(data.1$Longitude)), ":",
                         formatC(((abs(data.1$Longitude) - floor(abs(data.1$Longitude))) * 60), 
-                                width = 5, flag = 0, format = "f", digits = 2), " ")
+                                width = 5, flag = 0, format = "f", digits = 2))
     
     if (event.code == "T"){
-      str.data <- data.1$comment
+      str.data <- formatC(data.1$comment, width = 5)
     } else if (event.code == "V"){
       str.data <- formatC(unlist(strsplit(as.character(data.1$comment), 
                                           ";")), width = 5)
@@ -144,14 +144,14 @@ for (k in 1:nrow(data_sorted)){
       str.data <- formatC(unlist(strsplit(as.character(data.1$comment), ";")), 
                           width = 5)
     } else if (event.code == "C"){
-      str.data <- data.1$comment
+      str.data <- paste0(" ", data.1$comment)
     } else {
       str.data <- ""
     }
     out.line <- paste0(line.number, event.code, effort,
-                     time, date, latitude, longitude, 
-                     paste(str.data, sep = "", collapse = ""),
-                     "\n")
+                       time, date, latitude, longitude, 
+                       paste0(str.data, sep = "", collapse = ""),
+                       "\n")
     cat(out.line)
   } else {
     time2 <- data_sorted[k, "Date_local"]
@@ -174,12 +174,12 @@ for (k in 1:nrow(data_sorted)){
       
       longitude <- paste0("W", floor(abs(data.1$Longitude)), ":",
                           formatC(((abs(data.1$Longitude) - floor(abs(data.1$Longitude))) * 60), 
-                                  width = 5, flag = 0, format = "f", digits = 2), " ")
+                                  width = 5, flag = 0, format = "f", digits = 2))
       str.data <- ""
       c <- c + 1
       out.line <- paste0(line.number, event.code, effort,
                      time, date, latitude, longitude, 
-                     paste(str.data, sep = "", collapse = ""),
+                     paste0(str.data, sep = "", collapse = ""),
                      "\n")
       cat(out.line)
     }
