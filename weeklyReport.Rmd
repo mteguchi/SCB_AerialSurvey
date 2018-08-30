@@ -41,6 +41,7 @@ get.lon <- function(x){
 ```
 
 ```{r get_data, include=F, echo=F}
+# add new files
 infiles <- c('data/das files/SCB2018_DAS.822',
              "data/das files/DAS1235ed.825",
              "data/das files/SCB2018_DAS.826",
