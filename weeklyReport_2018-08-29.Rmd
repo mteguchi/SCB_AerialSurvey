@@ -1,0 +1,169 @@
+---
+title: "Weekly Report"
+author: "Tomo Eguchi"
+date: "August 24, 2018"
+output: word_document
+---
+
+```{r setup, include=FALSE, echo=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+rm(list=ls())
+
+library(dplyr)
+library(ggplot2)
+
+save.data <- F
+save.fig <- F
+
+ifelse(Sys.info()[1] == 'Linux',
+       source('~/Documents/R/tools/TomosFunctions.R'),
+       source('~/R/tools/TomosFunctions.R'))
+
+get.lat <- function(x){
+  lat.deg <- as.numeric(paste(x[21:22], sep = '', collapse = ''))
+  lat.min <- as.numeric(paste(x[24:25], sep = '', collapse = ''))
+  lat.min <- lat.min + as.numeric(paste(x[27:28],
+                                        sep = '', collapse = ''))/100
+  lat <- lat.deg + lat.min/60
+  return(lat)
+
+}
+
+get.lon <- function(x){
+  lon.deg <- as.numeric(paste(x[31:33], sep = '', collapse = ''))
+  lon.min <- as.numeric(paste(x[35:36], sep = '', collapse = ''))
+  lon.min <- lon.min + as.numeric(paste(x[38:39],
+                                        sep = '', collapse = ''))/100
+  lon <- -1 * (lon.deg + lon.min/60)
+  return(lon)
+}
+```
+
+```{r get_data, include=F, echo=F}
+infiles <- c('Data/das files/SCB2018_DAS_ed1.822',
+             "Data/das files/DAS1235_ed3.825",
+             "Data/das files/SCB2018_DAS_ed1.826",
+             "Data/das files/DAS1116_ed2.828",
+             "Data/das files/DAS1001_ed1.829")
+
+outfile <- 'data/tmpTracks_2018.txt'
+Lon1 <- Lat1 <- Time1 <- Date1 <-  NA
+Line <- Distance <- Lon2<-Lat2 <- Time2<-Date2 <-  NA
+
+c <- 1
+
+for (k1 in 1:length(infiles)){
+  y <- readLines(infiles[k1])
+  k <- 1
+  
+  for(k in 1:length(y)){
+    x <- unlist(strsplit(y[k], ''))
+    
+    lineNum <- as.numeric(paste(x[1:3], sep = '', collapse = ''))
+    eventCode <- x[4]
+    if (eventCode == 'T' | eventCode == 'R'){
+      Date1[c] <- paste(x[13:18], sep = '', collapse = '')
+      Time1[c] <- paste(x[6:11], sep = '', collapse = '')
+      Lat1[c] <- get.lat(x)
+      Lon1[c] <- get.lon(x)
+      line.tmp <- paste(na.omit(x[40:44]), sep = '', collapse = '')
+      line.tmp <- as.numeric(line.tmp)
+      Line[c] <- ifelse(!is.na(line.tmp), as.numeric(line.tmp), Line[c-1])
+      
+    } else if (eventCode == 'O' | eventCode == 'E') {
+      Date2[c] <- paste(x[13:18], sep = '', collapse = '')
+      Time2[c] <- paste(x[6:11], sep = '', collapse = '')
+      Lat2[c] <- get.lat(x)
+      Lon2[c] <- get.lon(x)
+      c <- c + 1
+    }
+    
+  }
+  
+}
+
+Distance <- km2nm(geosphere::distGeo(cbind(Lon1, Lat1),
+                                     cbind(Lon2, Lat2))/1000)
+
+out.df <- na.omit(data.frame(Date1 = Date1, Time1 = Time1, Lat1 = Lat1, Lon1 = Lon1,
+                     Date2 = Date2, Time2 = Time2, Lat2 = Lat2, Lon2 = Lon2,
+                     Line = Line, Distance = Distance))
+
+if(save.fig)
+  write.csv(out.df, file = outfile,
+            quote = F, row.names = F)
+```
+
+```{r get_lines, echo=F, include=F}
+
+# These track lines were created for the BREP funded study 
+track.lines <- read.csv("Data/tracklines_SC_N_10km_2017-08-27.csv",
+                        header = T)
+
+study.area <- readRDS(file = "RDSfiles/SearchArea_2018-08-24.rds")
+coast.line <- readRDS(file = "RDSfiles/CoastLine_2018-08-24.rds")
+transect.lines <- readRDS(file = "RDSfiles/TransectLines_2018-08-24.rds") %>%
+  filter(lineID != 12 & lineID != 14)
+
+offshore.extensions <- read.csv(file = "Data/offshoreSegments.csv",
+                                header = T)
+MX.lines <- read.csv(file = "Data/MX_Segments.csv",
+                           header = T)
+```
+
+```{r plot, echo=F, include=F}
+land.color <- '#333333'
+
+p.1 <- ggplot() +
+  geom_polygon(fill = land.color,
+               data = coast.line,
+               aes(x = X, y = Y, group = idx))  +
+  # geom_polygon(data = study.area,
+  #              aes(x = X, y = Y),
+  #              fill = NA, size = 1.2,
+  #              alpha = 0.6,
+  #              color='black') +
+  # geom_segment(data = transect.lines,
+  #              aes(x = lonInshore, y = latInshore,
+  #                  xend = lonOffshore, yend = latOffshore),
+  #              size = 1.0) +
+  # geom_text(data = transect.lines,
+  #           aes(x = lonOffshore,
+  #               y = latOffshore, label = lineID),
+  #           color = 'firebrick1',
+  #           fontface = "bold")+
+  # geom_segment(data = offshore.extensions,
+  #              aes(x = lon1, y = lat1,
+  #                  xend = lon2, yend = lat2),
+  #              size = 1.0) +
+  # geom_segment(data = MX.lines,
+  #              aes(x = lon1, y = lat1,
+  #                  xend = lon2, yend = lat2),
+  #              size = 1.0) +
+  # geom_text(data = offshore.extensions,
+  #           aes(x = lon2,
+  #               y = lat2, label = lineID),
+  #           color = 'firebrick1',
+  #           fontface = "bold")+
+  geom_segment(data = out.df,
+               aes(x = Lon1, y = Lat1,
+                   xend = Lon2, yend = Lat2),
+               color = "firebrick",
+               alpha = 0.4,
+               size = 1.2) +
+  coord_map() +
+  xlab('') + ylab('')
+
+if (save.fig)
+  ggsave(filename = paste0("figures/finished_tracklines_",
+                           Sys.Date(), ".png"),
+         plot = p.1, dpi = 600, device = "png")
+
+```
+
+Marine Turtle Ecology and Assessment program conducted the first day of the Southern California Bight loggerhead aerial survey on ```r mmddyy2date(as.character(unique(out.df$Date1)))``` onboard Partenavia Observer (Aspen Helicopters). This survey is part of a project funded by Bycatch Reduction and Engineering Program and a collaborative effort among MTEAP, ERD, WCR, UCSC, Stanford University, and University of Maryland.  The team found a short window of good weather (Beaufort sea state < 4) in the early afternoon and completed six transect lines (```r round(sum(out.df$Distance))``` nm) in the southern part of the study area (blue lines in the figure). No loggerhead turtle was found. The team is waiting for another weather window to complete the track lines and possibly extend the coverage to the offshore area of the planned track lines in the next several days.
+
+```{r plot_tracks, echo=FALSE, cache=TRUE, fig.cap = "Figure. Planned (black) and completed (blue) track lines of the SCB aerial survey for loggehread turtles."}
+knitr::include_graphics(paste0("figures/finished_tracklines_", Sys.Date(), ".png"))
+```
