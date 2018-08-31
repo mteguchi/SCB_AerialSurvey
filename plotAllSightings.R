@@ -3,7 +3,7 @@
 
 rm(list=ls())
 
-save.image <- T
+save.image <- F
 source('CcSCB_functions.R')
 # library(viridis)
 # library(RODBC)
