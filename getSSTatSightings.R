@@ -86,10 +86,19 @@ if (!file.exists('RDSfiles/SSTatSightings.rds')){
       tlim <- c(SCB.data.latlon$date[k],
                 SCB.data.latlon$date[k])
 
+      # the URL below has been changed to the following as the old one doesn't exist any longer
+      # 2018-11-02
+      sstURL <- paste0("https://coastwatch.pfeg.noaa.gov/erddap/griddap/jplG1SST.nc?SST[(",
+             tlim[1], "T00:00:00Z):1:(", tlim[2], "T00:00:00Z)][(", ylim[1], "):1:(", ylim[2], ")][(", xlim[1], 
+             "):1:(", xlim[2], ")],mask[(", tlim[1], "T00:00:00Z):1:(", tlim[2], "T00:00:00Z)][(", 
+             ylim[1], "):1:(", ylim[2], ")][(", xlim[1], "):1:(", xlim[2], ")],analysis_error[(", tlim[1], 
+             "T00:00:00Z):1:(", tlim[2], "T00:00:00Z)][(", ylim[1], "):1:(", ylim[2], ")][(", 
+             xlim[1], "):1:(", xlim[2], ")]")
+
       # changed from xtract on 13 June 2017
-      sstURL <- paste0('https://coastwatch.pfeg.noaa.gov/erddap/griddap/jplMURSST41.nc?analysed_sst[(',
-                       tlim[1], ')][(', ylim[1], '):(', ylim[2], ')][(',
-                       xlim[1], '):(', xlim[2], ')]')
+      # sstURL <- paste0('https://coastwatch.pfeg.noaa.gov/erddap/griddap/jplMURSST41.nc?analysed_sst[(',
+      #                  tlim[1], ')][(', ylim[1], '):(', ylim[2], ')][(',
+      #                  xlim[1], '):(', xlim[2], ')]')
 
       test <- download.file(sstURL,
                             destfile= paste0("Data/ncfiles/sst_", k, ".nc"),
@@ -100,7 +109,7 @@ if (!file.exists('RDSfiles/SSTatSightings.rds')){
       lat <- ncvar_get(datafileID, varid="latitude")
       time <- ncvar_get(datafileID, varid="time")
       time <- as.POSIXlt(time,origin='1970-01-01',tz= "GMT")
-      sst.mat <- ncvar_get(datafileID, varid = 'analysed_sst')
+      sst.mat <- ncvar_get(datafileID, varid = 'SST')
       nc_close(datafileID)
 
       # xtracto changes varialbe names ...
