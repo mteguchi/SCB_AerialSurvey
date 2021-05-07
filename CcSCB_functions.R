@@ -8,16 +8,16 @@ library(dsm)
 library(rgdal)
 library(Distance)
 library(sp)
-library(xtractomatic)
+#library(xtractomatic)
 library(reshape2)
 library(ncdf4)
 library(grid)
 library(RNetCDF)
 library(tidyverse)
 
-ifelse(Sys.info()[1] == 'Linux',
-       source('~/Documents/R/tools/TomosFunctions.R'),
-       source('~/R/tools/TomosFunctions.R'))
+# ifelse(Sys.info()[1] == 'Linux',
+#        source('~/Documents/R/tools/TomosFunctions.R'),
+#        source('~/R/tools/TomosFunctions.R'))
 
 land.color <- '#333333'
 

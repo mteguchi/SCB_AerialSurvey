@@ -8,7 +8,7 @@ library(viridis)
 library(reshape)
 #library(tidyr)
 
-save.fig <- T
+save.fig <- F
 dat.raw <- read.delim('Data/PDO_20171128.txt',
                       sep = "", header = T)
 PDO.values <- melt(dat.raw, id.vars = 'YEAR')
