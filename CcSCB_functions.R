@@ -15,6 +15,106 @@ library(grid)
 library(RNetCDF)
 library(tidyverse)
 
+
+#getCoastLine
+# A function to extract a coast line given longitude and latitude
+# limits for the Pacific Ocean
+
+# Data files - E and W Pacific are separated; got these from Rich Cosgrove
+
+# Used to be in Matlab
+
+# Tomo Eguchi
+# 16 December 2016
+getCoastLine <- function(filename, lon.limits, lat.limits){
+  data1 <- read.table(filename, header = F, row.names = NULL, sep = ',')
+  # fix longitudes to -180 to 180
+  lon.limits[lon.limits > 180] <- lon.limits[lon.limits > 180] - 360
+  out.df <- data1[data1[,1] >= min(lon.limits) &
+                    data1[,1] <= max(lon.limits) &
+                    data1[,2] >= min(lat.limits) &
+                    data1[,2] <= max(lat.limits),]
+  colnames(out.df) <- c('Longitude', 'Latitude')
+  out.df$idx <- NA
+  idx.rows <- 1:nrow(out.df)
+  na.idx <- is.na(out.df$Longitude)  # T/F for NA
+  dif.na.idx <- na.idx[2:length(na.idx)] - na.idx[1:(length(na.idx)-1)]
+  idx.neg1 <- idx.rows[dif.na.idx == -1]  # beginning of segments
+  idx.pos1 <- idx.rows[dif.na.idx == 1]   # end of segments
+  
+  for (k in 1:length(idx.neg1)) {
+    out.df[idx.neg1[k]:idx.pos1[k], 'idx'] <- k
+  }
+  
+  # change index to a factor variable
+  out.df$idx <- as.factor(out.df$idx)
+  out.df <- na.omit(out.df)
+  # this splits all segments into separate dataframes
+  out.list <- split(out.df, out.df$idx)
+  
+  for (k in 1:length(out.list)){
+    line.1 <- out.list[[k]][1,]
+    line.end <- out.list[[k]][nrow(out.list[[k]]),]
+    if (line.1$Longitude != line.end$Longitude){
+      tmp <- out.list[[k]]
+      tmp <- rbind(c(max(tmp$Longitude), max(tmp$Latitude), k),
+                   tmp, c(max(tmp$Longitude), max(tmp$Latitude), k))
+      out.list[[k]] <- tmp
+    }
+  }
+  return(out.list)
+  
+}
+
+ft2m <- function(x){
+  return(0.3048 * x)
+}
+
+
+deg2rad <- function(angleInDegrees){
+  angleInRadians <- (pi/180) * angleInDegrees
+  return(angleInRadians)
+}
+
+rad2deg <- function(angleInRadians){
+  angleInDegrees <- angleInRadians * (180/pi)
+  return(angleInDegrees)
+}
+
+
+## convert nm to sm
+nm2sm <- function(nm){
+  sm <- 1.15078 * nm
+  return(sm)
+}
+
+## convert sm to nm
+sm2nm <- function(sm){
+  nm <- sm / 1.15078
+  return(nm)
+}
+
+## Convert nm to km
+nm2km <- function(nm){
+  km <- nm * 1.852
+  return(km)
+}
+
+# convert km to nm
+km2nm <- function(km){
+  nm <- km / 1.852
+  return(nm)
+}
+
+km2sm <- function(km){
+  sm <- km/1.609
+  return(sm)
+}
+
+sm2km <- function(sm){
+  km <- sm * 1.609
+  return(km)
+}
 # ifelse(Sys.info()[1] == 'Linux',
 #        source('~/Documents/R/tools/TomosFunctions.R'),
 #        source('~/R/tools/TomosFunctions.R'))
@@ -1193,295 +1293,295 @@ dsm.dev.explained <- function(M){
 }
 
 ## some constants are defined here:
-load('RData/studyArea.RData')
-
-# Montgomery-Gibbs airport location:
-MYF <- data.frame(lat = 32.8158, lon = -117.1394)
-coordinates(MYF) <- c('lon', 'lat')
-proj4string(MYF) <- CRS("+proj=longlat +datum=WGS84")
-
-# McClellan-Palomar airport
-CRQ <- data.frame(lat = 33.1283, lon = -117.2800)
-coordinates(CRQ) <- c('lon', 'lat')
-proj4string(CRQ) <- CRS("+proj=longlat +datum=WGS84")
-
-# Ramona airport
-RNM <- data.frame(lat = 33.0392, lon = -116.9153)
-coordinates(RNM) <- c('lon', 'lat')
-proj4string(RNM) <- CRS("+proj=longlat +datum=WGS84")
-
-# get the data in:
-# 2011 and 2015 data that are split in 2 km chunks are here
-# these were created using AirSegChoCc_2016_04_11.R on merged data files
-# which were created using combineFiles.m in Matlab. AirSegChop script
-# was first created by Elizabeth Becker and Karin Forney and was modified
-# for turtle sightings by me.
-dat2011 <- read.csv('Data/processed/SEGDATA_SCB2011_DAS_2km_2016-06-06.csv')
-dat2015 <- read.csv('Data/processed/SEGDATA_SCB2015_DAS_2km_2016-06-06.csv')
-
-# dist variable in the above files is the length of each segment and NOT
-# distances of the objects from the track line.
-
-# sightings data are in "SITEINFO_SCB" files
-Sdata.2011 <- read.csv('Data/processed/SITEINFO_SCB2011_DAS_2km_2016-06-06.csv')
-Sdata.2015 <- read.csv('Data/processed/SITEINFO_SCB2015_DAS_2km_2016-06-06.csv')
-
-# Add date info merged between Sdata and dat
-date.2011.df <- dat2011[dat2011$segnum %in% Sdata.2011$segnum,
-                        c('segnum', 'year', 'month', 'day')]
-date.2015.df <- dat2015[dat2015$segnum %in% Sdata.2015$segnum,
-                        c('segnum', 'year', 'month', 'day')]
-# then assign the averages to each sighting - there probably is a more elegant
-# way of doing this but loops do the job...
-Sdata.2011$year <- Sdata.2011$month <- Sdata.2011$day <- NA
-for (k in 1:dim(Sdata.2011)[1]){
-  Sdata.2011[k, c('year',
-                  'month',
-                  'day')] <- date.2011.df[Sdata.2011$segnum[k] == date.2011.df$segnum,
-                                          c('year', 'month', 'day')]
-}
-Sdata.2015$year <- Sdata.2015$month <- Sdata.2015$day <- NA
-for (k in 1:dim(Sdata.2015)[1]){
-  Sdata.2015[k, c('year',
-                  'month',
-                  'day')] <- date.2015.df[Sdata.2015$segnum[k] == date.2015.df$segnum,
-                                          c('year', 'month', 'day')]
-}
-
-# create Sdata that includes both 2011 and 2015
-Sdata.2011$transectID <- paste(Sdata.2011$year,
-                               Sdata.2011$transectNum,
-                               sep = '_')
-
-Sdata.2015$transectID <- paste(Sdata.2015$year,
-                               Sdata.2015$transectNum,
-                               sep = '_')
-
-bft.2011.df <- dat2011[dat2011$segnum %in% Sdata.2011$segnum,
-                       c('segnum', 'aveBF')]
-bft.2015.df <- dat2015[dat2015$segnum %in% Sdata.2015$segnum,
-                       c('segnum', 'aveBF')]
-# then assign the averages to each sighting - there probably is a more elegant
-# way of doing this but loops do the job...
-Sdata.2011$Beaufort <- NA
-for (k in 1:dim(Sdata.2011)[1]){
-  Sdata.2011$Beaufort[k] <- bft.2011.df$aveBF[Sdata.2011$segnum[k] == bft.2011.df$segnum]
-}
-Sdata.2015$Beaufort <- NA
-for (k in 1:dim(Sdata.2015)[1]){
-  Sdata.2015$Beaufort[k] <- bft.2015.df$aveBF[Sdata.2015$segnum[k] == bft.2015.df$segnum]
-}
-
-Sdata <- rbind(Sdata.2011, Sdata.2015)
-
-# compute the perpendicular distances in meters
-Sdata$PerpDist <- ft2m(alt * tan(deg2rad(90 - abs(Sdata$DecAngle))))
-
-# fix slon to all negative values:
-Sdata$slon[Sdata$slon > 0] <- Sdata$slon[Sdata$slon > 0] - 360
-
-ccData <- subset(Sdata, species == 'cc')
-#ccDataOn <- subset(ccData, Effort == 1)
-
-# perp distance in km
-ccData$distance <- ccData$PerpDist/1000
-
-# convert lat/lon to x/y
-ccData$X <- ccData$mlon
-ccData$Y <- ccData$mlat
-ccData.Sp <- latlon2sp(ccData, center.UTM)
+#load('RData/studyArea.RData')
+# 
+# # Montgomery-Gibbs airport location:
+# MYF <- data.frame(lat = 32.8158, lon = -117.1394)
+# coordinates(MYF) <- c('lon', 'lat')
+# proj4string(MYF) <- CRS("+proj=longlat +datum=WGS84")
+# 
+# # McClellan-Palomar airport
+# CRQ <- data.frame(lat = 33.1283, lon = -117.2800)
+# coordinates(CRQ) <- c('lon', 'lat')
+# proj4string(CRQ) <- CRS("+proj=longlat +datum=WGS84")
+# 
+# # Ramona airport
+# RNM <- data.frame(lat = 33.0392, lon = -116.9153)
+# coordinates(RNM) <- c('lon', 'lat')
+# proj4string(RNM) <- CRS("+proj=longlat +datum=WGS84")
+# 
+# # get the data in:
+# # 2011 and 2015 data that are split in 2 km chunks are here
+# # these were created using AirSegChoCc_2016_04_11.R on merged data files
+# # which were created using combineFiles.m in Matlab. AirSegChop script
+# # was first created by Elizabeth Becker and Karin Forney and was modified
+# # for turtle sightings by me.
+# dat2011 <- read.csv('Data/processed/SEGDATA_SCB2011_DAS_2km_2016-06-06.csv')
+# dat2015 <- read.csv('Data/processed/SEGDATA_SCB2015_DAS_2km_2016-06-06.csv')
+# 
+# # dist variable in the above files is the length of each segment and NOT
+# # distances of the objects from the track line.
+# 
+# # sightings data are in "SITEINFO_SCB" files
+# Sdata.2011 <- read.csv('Data/processed/SITEINFO_SCB2011_DAS_2km_2016-06-06.csv')
+# Sdata.2015 <- read.csv('Data/processed/SITEINFO_SCB2015_DAS_2km_2016-06-06.csv')
+# 
+# # Add date info merged between Sdata and dat
+# date.2011.df <- dat2011[dat2011$segnum %in% Sdata.2011$segnum,
+#                         c('segnum', 'year', 'month', 'day')]
+# date.2015.df <- dat2015[dat2015$segnum %in% Sdata.2015$segnum,
+#                         c('segnum', 'year', 'month', 'day')]
+# # then assign the averages to each sighting - there probably is a more elegant
+# # way of doing this but loops do the job...
+# Sdata.2011$year <- Sdata.2011$month <- Sdata.2011$day <- NA
+# for (k in 1:dim(Sdata.2011)[1]){
+#   Sdata.2011[k, c('year',
+#                   'month',
+#                   'day')] <- date.2011.df[Sdata.2011$segnum[k] == date.2011.df$segnum,
+#                                           c('year', 'month', 'day')]
+# }
+# Sdata.2015$year <- Sdata.2015$month <- Sdata.2015$day <- NA
+# for (k in 1:dim(Sdata.2015)[1]){
+#   Sdata.2015[k, c('year',
+#                   'month',
+#                   'day')] <- date.2015.df[Sdata.2015$segnum[k] == date.2015.df$segnum,
+#                                           c('year', 'month', 'day')]
+# }
+# 
+# # create Sdata that includes both 2011 and 2015
+# Sdata.2011$transectID <- paste(Sdata.2011$year,
+#                                Sdata.2011$transectNum,
+#                                sep = '_')
+# 
+# Sdata.2015$transectID <- paste(Sdata.2015$year,
+#                                Sdata.2015$transectNum,
+#                                sep = '_')
+# 
+# bft.2011.df <- dat2011[dat2011$segnum %in% Sdata.2011$segnum,
+#                        c('segnum', 'aveBF')]
+# bft.2015.df <- dat2015[dat2015$segnum %in% Sdata.2015$segnum,
+#                        c('segnum', 'aveBF')]
+# # then assign the averages to each sighting - there probably is a more elegant
+# # way of doing this but loops do the job...
+# Sdata.2011$Beaufort <- NA
+# for (k in 1:dim(Sdata.2011)[1]){
+#   Sdata.2011$Beaufort[k] <- bft.2011.df$aveBF[Sdata.2011$segnum[k] == bft.2011.df$segnum]
+# }
+# Sdata.2015$Beaufort <- NA
+# for (k in 1:dim(Sdata.2015)[1]){
+#   Sdata.2015$Beaufort[k] <- bft.2015.df$aveBF[Sdata.2015$segnum[k] == bft.2015.df$segnum]
+# }
+# 
+# Sdata <- rbind(Sdata.2011, Sdata.2015)
+# 
+# # compute the perpendicular distances in meters
+# Sdata$PerpDist <- ft2m(alt * tan(deg2rad(90 - abs(Sdata$DecAngle))))
+# 
+# # fix slon to all negative values:
+# Sdata$slon[Sdata$slon > 0] <- Sdata$slon[Sdata$slon > 0] - 360
+# 
+# ccData <- subset(Sdata, species == 'cc')
+# #ccDataOn <- subset(ccData, Effort == 1)
+# 
+# # perp distance in km
+# ccData$distance <- ccData$PerpDist/1000
+# 
+# # convert lat/lon to x/y
+# ccData$X <- ccData$mlon
+# ccData$Y <- ccData$mlat
+# ccData.Sp <- latlon2sp(ccData, center.UTM)
 
 # get lines
 #lines.2015 <- get.track.lines('Data/tmpTracks_2015.txt')
 # Distance is in nm
-lines.2015 <- get.track.lines('Data/tmpTracks_Nov2016.txt')
-lines.2011 <- get.track.lines('Data/tmpTracks_2011.txt')
-lines.2011$lines$Year <- 2011
-lines.2015$lines$Year <- 2015
-
-lines.df <- rbind(cbind(lines.2011$lines, Date = lines.2011$data$date),
-                  cbind(lines.2015$lines, Date = lines.2015$data$date))
-
-lines.df$distance <- sqrt((lines.df$endX - lines.df$beginX)^2 +
-                            (lines.df$endY - lines.df$beginY)^2)
-
-dplyr::select(lines.df, starts_with("begin")) %>%  # get begin and end points
-  dplyr::rename(., newX = beginX, newY = beginY) %>%  # rename them so sp2latlon can work
-  sp2latlon(., center.UTM) %>%  # convert spatial points to lat/lon
-  as.data.frame() %>%           # change it to a regular dataframe
-  dplyr::rename(., beginX = X, beginY = Y) -> lines.df.begin.latlon  # rename them to beginX.beginY
-
-dplyr::select(lines.df, endX, endY) %>%
-  dplyr::rename(., newX = endX, newY = endY) %>%
-  sp2latlon(., center.UTM)  %>%
-  as.data.frame() %>%
-  dplyr::rename(., endX = X, endY = Y) -> lines.df.end.latlon
-
-lines.df.latlon <- data.frame(date = as.Date(lines.df$Date),
-                              Year = lines.df$Year,
-                              beginX = lines.df.begin.latlon$beginX,
-                              beginY = lines.df.begin.latlon$beginY,
-                              endX = lines.df.end.latlon$endX,
-                              endY = lines.df.end.latlon$endY,
-                              distance = lines.df$distance)
-
-# sightings data are here: - new data file includes all of them
-#sightings.data <- read.csv('Data/CcSightingsQuery_28Feb2017.txt')
-#sightings.data$date <- as.character(strptime(sightings.data$Date_Observed,
-#                                             format = "%m/%d/%Y"))
-
-# more sightings from MM cruises:
-# sightings.data.2 <- read.csv('Data/CcSightingsFromCruises.csv')
-# sightings.data.2$date <- as.character(strptime(sightings.data.2$Date,
-#                                                format = "%m/%d/%Y"))
-#tmp2 <- sightings.data.2[, c('date', 'Lat', 'Lon')]
-#colnames(tmp2) <- c('date', 'Latitude', 'Longitude')
-
-#sightings.data <- rbind(sightings.data.1[, c('date',
-                        #                      'Latitude',
-                        #                      'Longitude')],
-                        # tmp2)
-
-#colnames(sightings.data) <- c('Date', 'Latitude', 'Longitude')
-
-# segmented data are here:
-# chopped up segments of transect lines
-# covariates should be included in these.
-# use the output from addCovs2Segs.R
-# Convert segdata into a spatial data frame
-dat2015$X <- dat2015$mlon
-dat2015$Y <- dat2015$mlat
-dat2015.Sp <- latlon2sp(dat2015, center.UTM)
-
-# and for 2011
-dat2011$X <- dat2011$mlon
-dat2011$Y <- dat2011$mlat
-dat2011.Sp <- latlon2sp(dat2011, center.UTM)
-
-segment.data.2015 <- data.frame(Effort = dat2015$dist,
-                                Sample.Label = dat2015$segnum,
-                                BF = dat2015$aveBF,
-                                x = dat2015.Sp$newX,
-                                y = dat2015.Sp$newY,
-                                Transect.Label = dat2015$transectNum,
-                                year = dat2015.Sp$year,
-                                month = dat2015.Sp$month,
-                                day = dat2015.Sp$day)
-
-segment.data.2011 <- data.frame(Effort = dat2011$dist,
-                                Sample.Label = dat2011$segnum,
-                                BF = dat2011$aveBF,
-                                x = dat2011.Sp$newX,
-                                y = dat2011.Sp$newY,
-                                Transect.Label = dat2011$transectNum,
-                                year = dat2011.Sp$year,
-                                month = dat2011.Sp$month,
-                                day = dat2011.Sp$day)
-
-segment.data <- rbind(segment.data.2011, segment.data.2015)
-
-# for plotting segments:
-begin.2015 <- dat2015[, c('lat1', 'lon1', 'aveBF')]
-colnames(begin.2015) <- c('Y', 'X', 'aveBF')
-begin.2015.Sp <- latlon2sp(begin.2015, center.UTM)
-
-end.2015 <- dat2015[, c('lat2', 'lon2', 'aveBF')]
-colnames(end.2015) <- c('Y', 'X', 'aveBF')
-end.2015.Sp <- latlon2sp(end.2015, center.UTM)
-
-transect.segments.2015 <- data.frame(beginX = begin.2015.Sp$newX,
-                                     beginY = begin.2015.Sp$newY,
-                                     endX = end.2015.Sp$newX,
-                                     endY = end.2015.Sp$newY,
-                                     aveBF = begin.2015.Sp$aveBF)
-
-begin.2011 <- dat2011[, c('lat1', 'lon1', 'aveBF')]
-colnames(begin.2011) <- c('Y', 'X', 'aveBF')
-begin.2011.Sp <- latlon2sp(begin.2011, center.UTM)
-
-end.2011 <- dat2011[, c('lat2', 'lon2', 'aveBF')]
-colnames(end.2011) <- c('Y', 'X', 'aveBF')
-end.2011.Sp <- latlon2sp(end.2011, center.UTM)
-
-transect.segments.2011 <- data.frame(beginX = begin.2011.Sp$newX,
-                                     beginY = begin.2011.Sp$newY,
-                                     endX = end.2011.Sp$newX,
-                                     endY = end.2011.Sp$newY,
-                                     aveBF = begin.2011$aveBF)
-
-# split them into inshore and offshore sections:
-n.lines <- (sum(!is.na(all.lines.2$Lat_middle)) * 2) +
-  sum(is.na(all.lines.2$Lat_middle))
-
-lines.strata <- matrix(data = NA, nrow = n.lines, ncol = 7)
-c <- 1
-for (k in 1:dim(all.lines.2)[1]){
-  line1 <- all.lines.2[k,]
-  if (!is.na(line1$Lat_middle)){
-    lines.strata[c, 1] <- c
-    lines.strata[c, 2] <- line1$Lat_offshore
-    lines.strata[c, 3] <- line1$Lon_offshore
-    lines.strata[c, 4] <- line1$Lat_middle
-    lines.strata[c, 5] <- line1$Lon_middle
-    lines.strata[c, 6] <- 1
-    lines.strata[c, 7] <- line1$Line
-    c <- c + 1
-
-    lines.strata[c, 1] <- c
-    lines.strata[c, 2] <- line1$Lat_middle
-    lines.strata[c, 3] <- line1$Lon_middle
-    lines.strata[c, 4] <- line1$Lat_inshore
-    lines.strata[c, 5] <- line1$Lon_inshore
-    lines.strata[c, 6] <- 0
-    lines.strata[c, 7] <- line1$Line
-    c <- c + 1
-
-  } else {
-    lines.strata[c, 1] <- c
-    lines.strata[c, 2] <- line1$Lat_offshore
-    lines.strata[c, 3] <- line1$Lon_offshore
-    lines.strata[c, 4] <- line1$Lat_inshore
-    lines.strata[c, 5] <- line1$Lon_inshore
-    lines.strata[c, 6] <- 1
-    lines.strata[c, 7] <- line1$Line
-    c <- c + 1
-  }
-}
-
-lines.strata.df <- as.data.frame(lines.strata)
-colnames(lines.strata.df) <- c('line', 'lat_offshore', 'lon_offshore',
-                               'lat_inshore', 'lon_inshore', 'offshore', 'ID')
-
-#write.csv(x = lines.strata.df,
-#          file = 'Data/transectLines_strata.csv',
-#          quote = FALSE, row.names = FALSE)
-
-lines.strata.df.0 <- lines.strata.df
-
-# get new x and y for offshore
-# first change column names to Y and X so latlon2sp can read it
-colnames(lines.strata.df.0) <- c('line', 'Y', 'X',
-                                 'lat_inshore', 'lon_inshore',
-                                 'offshore', 'ID')
-# convert the dataframe into a sptial object and add the
-# coordinate system using center.UTM
-lines.strata.df.Sp <- latlon2sp(lines.strata.df.0, center.UTM)
-
-# Change the column names; Y and X were removed and newX and newY
-# were appended at the end. So, where Y and X used to be are now
-# "lat_inshore" and "lon_inshore", which need to be replaced by
-# Y and X for latlon2sp to work:
-lines.strata.df.1 <- lines.strata.df.Sp@data
-colnames(lines.strata.df.1) <- c('line', 'Y', 'X', 'offshore', 'ID',
-                               'newX_offshore', 'newY_offshore')
-
-# send it in to latlon2sp and convert all those points to be
-# centered at center.UTM.
-lines.strata.df.Sp <- latlon2sp(lines.strata.df.1, center.UTM)
-lines.strata.df.2 <- lines.strata.df.Sp@data
-colnames(lines.strata.df.2) <- c('line', 'offshore', 'ID',
-                                 'newX_offshore', 'newY_offshore',
-                                 'newX_inshore', 'newY_inshore')
+# lines.2015 <- get.track.lines('Data/tmpTracks_Nov2016.txt')
+# lines.2011 <- get.track.lines('Data/tmpTracks_2011.txt')
+# lines.2011$lines$Year <- 2011
+# lines.2015$lines$Year <- 2015
+# 
+# lines.df <- rbind(cbind(lines.2011$lines, Date = lines.2011$data$date),
+#                   cbind(lines.2015$lines, Date = lines.2015$data$date))
+# 
+# lines.df$distance <- sqrt((lines.df$endX - lines.df$beginX)^2 +
+#                             (lines.df$endY - lines.df$beginY)^2)
+# 
+# dplyr::select(lines.df, starts_with("begin")) %>%  # get begin and end points
+#   dplyr::rename(., newX = beginX, newY = beginY) %>%  # rename them so sp2latlon can work
+#   sp2latlon(., center.UTM) %>%  # convert spatial points to lat/lon
+#   as.data.frame() %>%           # change it to a regular dataframe
+#   dplyr::rename(., beginX = X, beginY = Y) -> lines.df.begin.latlon  # rename them to beginX.beginY
+# 
+# dplyr::select(lines.df, endX, endY) %>%
+#   dplyr::rename(., newX = endX, newY = endY) %>%
+#   sp2latlon(., center.UTM)  %>%
+#   as.data.frame() %>%
+#   dplyr::rename(., endX = X, endY = Y) -> lines.df.end.latlon
+# 
+# lines.df.latlon <- data.frame(date = as.Date(lines.df$Date),
+#                               Year = lines.df$Year,
+#                               beginX = lines.df.begin.latlon$beginX,
+#                               beginY = lines.df.begin.latlon$beginY,
+#                               endX = lines.df.end.latlon$endX,
+#                               endY = lines.df.end.latlon$endY,
+#                               distance = lines.df$distance)
+# 
+# # sightings data are here: - new data file includes all of them
+# #sightings.data <- read.csv('Data/CcSightingsQuery_28Feb2017.txt')
+# #sightings.data$date <- as.character(strptime(sightings.data$Date_Observed,
+# #                                             format = "%m/%d/%Y"))
+# 
+# # more sightings from MM cruises:
+# # sightings.data.2 <- read.csv('Data/CcSightingsFromCruises.csv')
+# # sightings.data.2$date <- as.character(strptime(sightings.data.2$Date,
+# #                                                format = "%m/%d/%Y"))
+# #tmp2 <- sightings.data.2[, c('date', 'Lat', 'Lon')]
+# #colnames(tmp2) <- c('date', 'Latitude', 'Longitude')
+# 
+# #sightings.data <- rbind(sightings.data.1[, c('date',
+#                         #                      'Latitude',
+#                         #                      'Longitude')],
+#                         # tmp2)
+# 
+# #colnames(sightings.data) <- c('Date', 'Latitude', 'Longitude')
+# 
+# # segmented data are here:
+# # chopped up segments of transect lines
+# # covariates should be included in these.
+# # use the output from addCovs2Segs.R
+# # Convert segdata into a spatial data frame
+# dat2015$X <- dat2015$mlon
+# dat2015$Y <- dat2015$mlat
+# dat2015.Sp <- latlon2sp(dat2015, center.UTM)
+# 
+# # and for 2011
+# dat2011$X <- dat2011$mlon
+# dat2011$Y <- dat2011$mlat
+# dat2011.Sp <- latlon2sp(dat2011, center.UTM)
+# 
+# segment.data.2015 <- data.frame(Effort = dat2015$dist,
+#                                 Sample.Label = dat2015$segnum,
+#                                 BF = dat2015$aveBF,
+#                                 x = dat2015.Sp$newX,
+#                                 y = dat2015.Sp$newY,
+#                                 Transect.Label = dat2015$transectNum,
+#                                 year = dat2015.Sp$year,
+#                                 month = dat2015.Sp$month,
+#                                 day = dat2015.Sp$day)
+# 
+# segment.data.2011 <- data.frame(Effort = dat2011$dist,
+#                                 Sample.Label = dat2011$segnum,
+#                                 BF = dat2011$aveBF,
+#                                 x = dat2011.Sp$newX,
+#                                 y = dat2011.Sp$newY,
+#                                 Transect.Label = dat2011$transectNum,
+#                                 year = dat2011.Sp$year,
+#                                 month = dat2011.Sp$month,
+#                                 day = dat2011.Sp$day)
+# 
+# segment.data <- rbind(segment.data.2011, segment.data.2015)
+# 
+# # for plotting segments:
+# begin.2015 <- dat2015[, c('lat1', 'lon1', 'aveBF')]
+# colnames(begin.2015) <- c('Y', 'X', 'aveBF')
+# begin.2015.Sp <- latlon2sp(begin.2015, center.UTM)
+# 
+# end.2015 <- dat2015[, c('lat2', 'lon2', 'aveBF')]
+# colnames(end.2015) <- c('Y', 'X', 'aveBF')
+# end.2015.Sp <- latlon2sp(end.2015, center.UTM)
+# 
+# transect.segments.2015 <- data.frame(beginX = begin.2015.Sp$newX,
+#                                      beginY = begin.2015.Sp$newY,
+#                                      endX = end.2015.Sp$newX,
+#                                      endY = end.2015.Sp$newY,
+#                                      aveBF = begin.2015.Sp$aveBF)
+# 
+# begin.2011 <- dat2011[, c('lat1', 'lon1', 'aveBF')]
+# colnames(begin.2011) <- c('Y', 'X', 'aveBF')
+# begin.2011.Sp <- latlon2sp(begin.2011, center.UTM)
+# 
+# end.2011 <- dat2011[, c('lat2', 'lon2', 'aveBF')]
+# colnames(end.2011) <- c('Y', 'X', 'aveBF')
+# end.2011.Sp <- latlon2sp(end.2011, center.UTM)
+# 
+# transect.segments.2011 <- data.frame(beginX = begin.2011.Sp$newX,
+#                                      beginY = begin.2011.Sp$newY,
+#                                      endX = end.2011.Sp$newX,
+#                                      endY = end.2011.Sp$newY,
+#                                      aveBF = begin.2011$aveBF)
+# 
+# # split them into inshore and offshore sections:
+# n.lines <- (sum(!is.na(all.lines.2$Lat_middle)) * 2) +
+#   sum(is.na(all.lines.2$Lat_middle))
+# 
+# lines.strata <- matrix(data = NA, nrow = n.lines, ncol = 7)
+# c <- 1
+# for (k in 1:dim(all.lines.2)[1]){
+#   line1 <- all.lines.2[k,]
+#   if (!is.na(line1$Lat_middle)){
+#     lines.strata[c, 1] <- c
+#     lines.strata[c, 2] <- line1$Lat_offshore
+#     lines.strata[c, 3] <- line1$Lon_offshore
+#     lines.strata[c, 4] <- line1$Lat_middle
+#     lines.strata[c, 5] <- line1$Lon_middle
+#     lines.strata[c, 6] <- 1
+#     lines.strata[c, 7] <- line1$Line
+#     c <- c + 1
+# 
+#     lines.strata[c, 1] <- c
+#     lines.strata[c, 2] <- line1$Lat_middle
+#     lines.strata[c, 3] <- line1$Lon_middle
+#     lines.strata[c, 4] <- line1$Lat_inshore
+#     lines.strata[c, 5] <- line1$Lon_inshore
+#     lines.strata[c, 6] <- 0
+#     lines.strata[c, 7] <- line1$Line
+#     c <- c + 1
+# 
+#   } else {
+#     lines.strata[c, 1] <- c
+#     lines.strata[c, 2] <- line1$Lat_offshore
+#     lines.strata[c, 3] <- line1$Lon_offshore
+#     lines.strata[c, 4] <- line1$Lat_inshore
+#     lines.strata[c, 5] <- line1$Lon_inshore
+#     lines.strata[c, 6] <- 1
+#     lines.strata[c, 7] <- line1$Line
+#     c <- c + 1
+#   }
+# }
+# 
+# lines.strata.df <- as.data.frame(lines.strata)
+# colnames(lines.strata.df) <- c('line', 'lat_offshore', 'lon_offshore',
+#                                'lat_inshore', 'lon_inshore', 'offshore', 'ID')
+# 
+# #write.csv(x = lines.strata.df,
+# #          file = 'Data/transectLines_strata.csv',
+# #          quote = FALSE, row.names = FALSE)
+# 
+# lines.strata.df.0 <- lines.strata.df
+# 
+# # get new x and y for offshore
+# # first change column names to Y and X so latlon2sp can read it
+# colnames(lines.strata.df.0) <- c('line', 'Y', 'X',
+#                                  'lat_inshore', 'lon_inshore',
+#                                  'offshore', 'ID')
+# # convert the dataframe into a sptial object and add the
+# # coordinate system using center.UTM
+# lines.strata.df.Sp <- latlon2sp(lines.strata.df.0, center.UTM)
+# 
+# # Change the column names; Y and X were removed and newX and newY
+# # were appended at the end. So, where Y and X used to be are now
+# # "lat_inshore" and "lon_inshore", which need to be replaced by
+# # Y and X for latlon2sp to work:
+# lines.strata.df.1 <- lines.strata.df.Sp@data
+# colnames(lines.strata.df.1) <- c('line', 'Y', 'X', 'offshore', 'ID',
+#                                'newX_offshore', 'newY_offshore')
+# 
+# # send it in to latlon2sp and convert all those points to be
+# # centered at center.UTM.
+# lines.strata.df.Sp <- latlon2sp(lines.strata.df.1, center.UTM)
+# lines.strata.df.2 <- lines.strata.df.Sp@data
+# colnames(lines.strata.df.2) <- c('line', 'offshore', 'ID',
+#                                  'newX_offshore', 'newY_offshore',
+#                                  'newX_inshore', 'newY_inshore')
 
 # to create shapefile, use the following:
 #shapefile(lines.strata.df.Sp, filename = 'transect_lines.shp')

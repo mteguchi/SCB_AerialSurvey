@@ -1,0 +1,329 @@
+---
+title: "SCB E-W transect lines"
+output: html_notebook
+---
+
+This document describes drawing transect lines within the SCB for marine mammal surveys.
+
+Adapted from the same named file in the SDB project.
+
+First load necessary libraries.
+```{r}
+rm(list=ls())
+save.image <- T
+save.data <- T
+
+# should move to sf package.
+library(rgdal)
+library(sp)
+library(geosphere)
+library(rgeos)
+library(tidyverse)
+library(sf)
+
+## Convert nm to km
+nm2km <- function(nm){
+  km <- nm * 1.852
+  return(km)
+}
+
+# convert km to nm
+km2nm <- function(km){
+  nm <- km / 1.852
+  return(nm)
+}
+
+dlines <- nm2km(2) * 1000    # distance between lines in m
+min.length <- nm2km(1) * 1000  # minimum line length in m
+
+water.color <- "lightblue"
+background.color <- "darkgray"
+eelgrass.color <- "lightgreen"
+
+#getCoastLine
+# A function to extract a coast line given longitude and latitude
+# limits for the Pacific Ocean
+
+# Data files - E and W Pacific are separated; got these from Rich Cosgrove
+
+# Used to be in Matlab
+
+# Tomo Eguchi
+# 16 December 2016
+getCoastLine <- function(filename, lon.limits, lat.limits){
+  data1 <- read.table(filename, header = F, row.names = NULL, sep = ',')
+  # fix longitudes to -180 to 180
+  lon.limits[lon.limits > 180] <- lon.limits[lon.limits > 180] - 360
+  out.df <- data1[data1[,1] >= min(lon.limits) &
+                    data1[,1] <= max(lon.limits) &
+                    data1[,2] >= min(lat.limits) &
+                    data1[,2] <= max(lat.limits),]
+  colnames(out.df) <- c('Longitude', 'Latitude')
+  out.df$idx <- NA
+  idx.rows <- 1:nrow(out.df)
+  na.idx <- is.na(out.df$Longitude)  # T/F for NA
+  dif.na.idx <- na.idx[2:length(na.idx)] - na.idx[1:(length(na.idx)-1)]
+  idx.neg1 <- idx.rows[dif.na.idx == -1]  # beginning of segments
+  idx.pos1 <- idx.rows[dif.na.idx == 1]   # end of segments
+  
+  for (k in 1:length(idx.neg1)) {
+    out.df[idx.neg1[k]:idx.pos1[k], 'idx'] <- k
+  }
+  
+  # change index to a factor variable
+  out.df$idx <- as.factor(out.df$idx)
+  out.df <- na.omit(out.df)
+  # this splits all segments into separate dataframes
+  out.list <- split(out.df, out.df$idx)
+  
+  for (k in 1:length(out.list)){
+    line.1 <- out.list[[k]][1,]
+    line.end <- out.list[[k]][nrow(out.list[[k]]),]
+    if (line.1$Longitude != line.end$Longitude){
+      tmp <- out.list[[k]]
+      tmp <- rbind(c(max(tmp$Longitude), max(tmp$Latitude), k),
+                   tmp, c(max(tmp$Longitude), max(tmp$Latitude), k))
+      out.list[[k]] <- tmp
+    }
+  }
+  return(out.list)
+  
+}
+
+home.dir <- Sys.getenv("HOME")
+
+if (length(grep("Documents", home.dir)) != 0){
+  home.dir <- strsplit(home.dir, "Documents")[[1]]
+} else {
+  home.dir <- home.dir
+}
+
+fishery.closure.2021.10.08 <- data.frame(X = c(-(118+6/60), 
+                                               -(118+10/60), 
+                                               -(117+54.5/60), 
+                                               -(117+44.75/60),
+                                               -(117+32.25/60)),
+                                         Y = c(33+44.25/60,
+                                               33+38/60,
+                                               33+11/60,
+                                               33+11/60,
+                                               33+21.75/60))
+fishery.closure.2021.10.08.sf <- st_as_sf(fishery.closure.2021.10.08, 
+                                          coords = c("X", "Y"), 
+           crs = "+proj=longlat +datum=WGS84") 
+
+coast.line.all <- getCoastLine(paste0(home.dir, 
+                                  "Documents/Oceans and Maps/coast/coast_Epac.txt"),
+                           c(-120.7, -116.6),
+                           c(30.98, 34.58))
+
+coast.line <- coast.line.all[[1]]
+
+approx.center <- data.frame(X=-119.967, Y=33.092)
+cetner.UTM <- st_as_sf(approx.center, coords = c("X", "Y"), 
+           crs = "+proj=longlat +datum=WGS84") #%>%
+   #st_transform(crs = "+proj=utm +zone=10 ellps=WGS84")
+  
+# N/S most latitudes for transect lines
+N.most.lat <- 33.628  # approx Huntington Beach Pier
+S.most.lat <- 33.210  # approx Oceanside Harbor
+
+E.end <- -117
+W.end <- -118.3  # approx S tip of Catalina
+
+NW.corner <- c(-118.3362, 33.4639)  # create a NW corner
+
+line.length <- nm2km(20) * 1000 # length of each line from the coast line (m)
+
+#load('RData/studyArea.RData')
+
+dpi <- 600
+```
+
+The following code was modified from a script, which was used to draw aerial transect lines for the Southern California Bight (CaptureArea.R in SCB_AerialSurvey project).
+
+
+First line is defined by selecting the northern most latitude for transect lines and finding the longitude of the shore lines (both E and W). This is completed by using gIntersection.  The while loop continues until the new latitude is south of the southern limit. 
+```{r}
+
+# get county lines
+county.lines <- st_read(paste0(home.dir, 
+                               "Documents/Oceans and Maps/CA_Counties"))
+
+county.lines %>% filter(NAME == "San Diego") %>%
+  st_transform(crs = "+proj=longlat +datum=WGS84") -> SD.county.line
+
+county.lines %>% filter(NAME == "Los Angeles") %>%
+  st_transform(crs = "+proj=longlat +datum=WGS84") -> LA.county.line
+
+county.lines %>% filter(NAME == "Orange") %>%
+  st_transform(crs = "+proj=longlat +datum=WGS84") -> OR.county.line
+
+search.area <- filter(coast.line, 
+                      Latitude <= N.most.lat & Latitude >= S.most.lat) %>%
+  select("Longitude", "Latitude")
+
+coast.line.linestring <- st_as_sf(coast.line, 
+                                  coords = c("Longitude", "Latitude"), 
+           crs = "+proj=longlat +datum=WGS84") %>%
+  st_combine() %>%
+  st_cast("LINESTRING")
+
+N.most <- filter(search.area, Latitude == max(search.area$Latitude))
+S.most <- filter(search.area, Latitude == min(search.area$Latitude))
+
+# using the northern boundary as the guide, we find the rhumb line:
+rhumb_bear <- bearingRhumb(N.most, NW.corner)
+
+# create a line along this latitude (longitude values are arbitrary):
+N.most.line <- st_as_sf(data.frame(X = c(W.end, E.end),
+                                   Y = c(N.most.lat, N.most.lat)),
+                        coords = c("X", "Y"),
+                        crs = "+proj=longlat +datum=WGS84") %>%
+  st_combine() %>%
+  st_cast("LINESTRING")
+
+# E end of the northern most line - intersection with the coast line
+N.coords <- st_intersection(coast.line.linestring, N.most.line) %>%
+  st_cast("POINT")
+
+N.coords.df <- st_coordinates(N.coords) %>% data.frame()
+
+# find the end point 
+N.coords.df[2,] <- destPoint(N.coords.df, rhumb_bear, line.length)
+
+# set up output dataframes
+coords.all <- data.frame(X = NA, Y = NA, ID = NA)
+E.coords <- data.frame(long = N.coords.df[1, "X"],
+                       lat = N.coords.df[1, "Y"])
+
+W.coords <- data.frame(long = N.coords.df[2, "X"],
+                       lat = N.coords.df[2, "Y"])
+
+lat <- E.coords$lat
+
+k <- k1 <- 1
+while (lat > S.most.lat){
+  # find new latitude - 90 degrees off from the first line
+  tmp.pt <- data.frame(destPoint(E.coords[k, ], rhumb_bear-90, dlines))
+  lat <- tmp.pt$lat
+  new.line <-  st_as_sf(data.frame(X = c(W.end, E.end),
+                                   Y = c(lat, lat)),
+                        coords = c("X", "Y"),
+                        crs = "+proj=longlat +datum=WGS84") %>%
+    st_combine() %>%
+    st_cast("LINESTRING")
+  
+  new.coords <- st_intersection(coast.line.linestring, new.line) %>%
+    st_cast("POINT")
+  
+  new.coords.df <- st_coordinates(new.coords) %>% data.frame()
+  new.coords.df[2,] <- destPoint(new.coords.df, rhumb_bear, line.length)
+  
+  coords.all[k1,] <- cbind(new.coords.df[1,], k)
+  coords.all[k1+1,] <- cbind(new.coords.df[2,], k)
+  k1 <- k1 + 2
+  k <- k + 1
+  W.coords[k, ] <- new.coords.df[2, ]
+  E.coords[k, ] <- new.coords.df[1, ]
+
+}
+
+# I can't figure out how to add crs once a multilinesting object is
+# created... for a later date. Wasted enough time 2021-10-08
+# multipoints <- st_as_sf(coords.all,
+#                         coords = c("X", "Y"),
+#                         crs = "+proj=longlat +datum=WGS84") %>%
+#   st_cast("MULTIPOINT",
+#           crs = "+proj=longlat +datum=WGS84")
+# 
+# points <- st_cast(st_geometry(multipoints), "POINT",
+#                         crs = "+proj=longlat +datum=WGS84")
+# n <- max(coords.all$ID)
+# linestrings <- lapply(X = 1:n, FUN = function(x) {
+#   
+#   pair <- st_combine(c(points[x], points[x + 1]))
+#   line <- st_cast(pair, "LINESTRING",
+#                   crs = "+proj=longlat +datum=WGS84")
+#   return(line)
+# 
+# })
+# 
+# multilinestrings <- st_multilinestring(do.call("rbind", linestrings)) 
+# 
+# tmp <- st_transform(st_multilinestring(multilinestrings), 
+#                     "+proj=longlat +datum=WGS84")
+
+W.coords %>% transmute(long.W = long, lat.W = lat) -> W.coords
+E.coords %>% transmute( long.E = long, lat.E = lat) -> E.coords
+
+# find distance between beginning and end:
+dist.line <- distHaversine(W.coords, E.coords)
+
+# get rid of those that are < min.length m, then reorder lat/lon so that I can copy and paste
+# in Google Earth to plot end points easily (they like lat, long pairs, not long, lat)
+
+all.coords <- cbind(W.coords, E.coords, dist.line)
+all.coords %>% filter(dist.line > min.length) %>%
+  filter(lat.W > S.most.lat) %>%
+  transmute(lat.W = lat.W, long.W = long.W,
+            lat.E = lat.E, long.E = long.E,
+            length = dist.line) -> survey.coords
+
+survey.coords$ID <- seq(1, nrow(survey.coords))
+
+survey.coords %>% select(ID, lat.W, long.W, lat.E, long.E, length) -> survey.coords
+```
+
+
+
+Once W and E ends are created, plot them on a map.
+
+```{r}
+# water.gis <- spTransform(readOGR(dsn = "GISfiles",
+#                                  layer = "water",
+#                                  verbose = FALSE),
+#                          CRS("+proj=longlat +datum=WGS84"))
+# 
+# water.df <- broom::tidy(water.gis)
+
+coast.line.all.df <- do.call("rbind", coast.line.all) %>%
+  group_by(idx)
+# make a plot
+p.1 <- ggplot() +
+  geom_polygon(data = coast.line.all.df,
+            aes(x = Longitude, y = Latitude, group = idx),
+            fill = background.color, color = "black") +
+  geom_path(data = fishery.closure.2021.10.08,
+            aes(x = X, y = Y), color = "darkblue") +
+  geom_segment(data = survey.coords,
+               aes(x = long.W, y = lat.W,
+                   xend = long.E, yend = lat.E),
+               size = 0.1) +
+  theme(panel.background = element_rect(fill = water.color)) +
+  geom_text(data = survey.coords,
+            aes(x = long.W,
+                y = lat.W, label = ID),
+            color = 'red',
+            size = 4)+
+  coord_map(xlim = c(-119, -117),
+            ylim = c(33, 34)) +
+  xlab('') + ylab('')
+
+p.1
+
+if (save.image) {
+  ggsave(plot = p.1,
+         dpi = 600,
+         file = paste0('figures/tracklines_', 
+                       km2nm(dlines/1000), 'nm_', Sys.Date(), '.png'))
+
+  write.table(signif(survey.coords, digits = 8), sep = ',',
+            file = paste0('data/tracklines_', 
+                          km2nm(dlines/1000), 'nm_', Sys.Date(), '.csv'),
+            append = F, quote = F, row.names = F, col.names = T)
+
+}
+
+```
+
