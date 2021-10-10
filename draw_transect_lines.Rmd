@@ -108,6 +108,7 @@ fishery.closure.2021.10.08 <- data.frame(X = c(-(118+6/60),
                                                33+11/60,
                                                33+11/60,
                                                33+21.75/60))
+
 fishery.closure.2021.10.08.sf <- st_as_sf(fishery.closure.2021.10.08, 
                                           coords = c("X", "Y"), 
            crs = "+proj=longlat +datum=WGS84") 
@@ -125,13 +126,17 @@ cetner.UTM <- st_as_sf(approx.center, coords = c("X", "Y"),
    #st_transform(crs = "+proj=utm +zone=10 ellps=WGS84")
   
 # N/S most latitudes for transect lines
-N.most.lat <- 33.628  # approx Huntington Beach Pier
-S.most.lat <- 33.210  # approx Oceanside Harbor
+N.most.lat <- 33.73    # Seal Beach 
+#N.most.lat <- 33.628  # approx Huntington Beach Pier
+#S.most.lat <- 33.210  # approx Oceanside Harbor
+S.most.lat <- 32.67    # Cabrillo National Monument
+
+#NW.corner <- c(-118.3362, 33.4639)  # create a NW corner (for Huntington Beach Pier)
+NW.corner <- c(-118.38, 33.5) # for Seal Beach
 
 E.end <- -117
-W.end <- -118.3  # approx S tip of Catalina
+W.end <- NW.corner[1]  # -118.3  # approx S tip of Catalina
 
-NW.corner <- c(-118.3362, 33.4639)  # create a NW corner
 
 line.length <- nm2km(20) * 1000 # length of each line from the coast line (m)
 
@@ -187,7 +192,9 @@ N.most.line <- st_as_sf(data.frame(X = c(W.end, E.end),
 N.coords <- st_intersection(coast.line.linestring, N.most.line) %>%
   st_cast("POINT")
 
-N.coords.df <- st_coordinates(N.coords) %>% data.frame()
+N.coords.df <- st_coordinates(N.coords) %>% 
+  data.frame() %>% 
+  filter(X == max(X))
 
 # find the end point 
 N.coords.df[2,] <- destPoint(N.coords.df, rhumb_bear, line.length)
@@ -204,28 +211,53 @@ lat <- E.coords$lat
 
 k <- k1 <- 1
 while (lat > S.most.lat){
-  # find new latitude - 90 degrees off from the first line
+  # find new latitude - 90 degrees off from the previous line
   tmp.pt <- data.frame(destPoint(E.coords[k, ], rhumb_bear-90, dlines))
-  lat <- tmp.pt$lat
-  new.line <-  st_as_sf(data.frame(X = c(W.end, E.end),
-                                   Y = c(lat, lat)),
+  lat <- tmp.pt[2]
+  # tmp.pt is not on the coast line find the arbitrary point offshore 
+  # along the new line:
+  tmp.coords <- destPoint(tmp.pt, rhumb_bear, line.length)
+  
+  # create a point on the land
+  tmp.coords.onland <- destPoint(tmp.coords, 
+                                 rhumb_bear-180, 
+                                 line.length+(nm2km(3)*1000))
+  
+  # create a temporary line from the land to tmp.coords
+  tmp.line <-  st_as_sf(data.frame(X = c(tmp.coords[1,1], 
+                                         tmp.coords.onland[1,1]),
+                                   Y = c(tmp.coords[1,2],
+                                         tmp.coords.onland[1,2])),
                         coords = c("X", "Y"),
                         crs = "+proj=longlat +datum=WGS84") %>%
     st_combine() %>%
     st_cast("LINESTRING")
   
-  new.coords <- st_intersection(coast.line.linestring, new.line) %>%
-    st_cast("POINT")
+  # find the intersection between tmp.line and coast line
+  inshore.pt <- st_intersection(coast.line.linestring, tmp.line) %>%
+    st_cast("POINT") %>% 
+    st_coordinates() %>%
+    data.frame() %>%
+    filter(X == max(X))
   
-  new.coords.df <- st_coordinates(new.coords) %>% data.frame()
-  new.coords.df[2,] <- destPoint(new.coords.df, rhumb_bear, line.length)
+  # find the point 20 nm on rhumb_bear direction
+  offshore.pt <- destPoint(inshore.pt, rhumb_bear, line.length)
+
+  new.line <-  st_as_sf(data.frame(X = c(inshore.pt[1,1], offshore.pt[1,1]),
+                                   Y = c(inshore.pt[1,2], offshore.pt[1,2])),
+                        coords = c("X", "Y"),
+                        crs = "+proj=longlat +datum=WGS84") %>%
+    st_combine() %>%
+    st_cast("LINESTRING")
+  
+  new.coords.df <- st_coordinates(new.line)
   
   coords.all[k1,] <- cbind(new.coords.df[1,], k)
   coords.all[k1+1,] <- cbind(new.coords.df[2,], k)
   k1 <- k1 + 2
   k <- k + 1
-  W.coords[k, ] <- new.coords.df[2, ]
-  E.coords[k, ] <- new.coords.df[1, ]
+  W.coords[k, ] <- new.coords.df[2, 1:2]
+  E.coords[k, ] <- new.coords.df[1, 1:2]
 
 }
 
@@ -305,9 +337,9 @@ p.1 <- ggplot() +
             aes(x = long.W,
                 y = lat.W, label = ID),
             color = 'red',
-            size = 4)+
+            size = 3)+
   coord_map(xlim = c(-119, -117),
-            ylim = c(33, 34)) +
+            ylim = c(32.5, 34)) +
   xlab('') + ylab('')
 
 p.1
