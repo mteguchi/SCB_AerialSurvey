@@ -304,7 +304,7 @@ all.coords %>% filter(dist.line > min.length) %>%
 
 survey.coords$ID <- seq(1, nrow(survey.coords))
 
-survey.coords %>% select(ID, lat.W, long.W, lat.E, long.E, length) -> survey.coords
+survey.coords %>% select(ID, lat.W, long.W, lat.E, long.E) -> survey.coords
 ```
 
 
