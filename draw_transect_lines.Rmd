@@ -33,12 +33,16 @@ km2nm <- function(km){
   return(nm)
 }
 
+# length of each line from the coast line (m)
+line.length <- nm2km(20) * 1000 
+
 dlines <- nm2km(2) * 1000    # distance between lines in m
 min.length <- nm2km(1) * 1000  # minimum line length in m
 
 water.color <- "lightblue"
 background.color <- "darkgray"
 eelgrass.color <- "lightgreen"
+
 
 #getCoastLine
 # A function to extract a coast line given longitude and latitude
@@ -138,8 +142,6 @@ E.end <- -117
 W.end <- NW.corner[1]  # -118.3  # approx S tip of Catalina
 
 
-line.length <- nm2km(20) * 1000 # length of each line from the coast line (m)
-
 #load('RData/studyArea.RData')
 
 dpi <- 600
@@ -218,10 +220,10 @@ while (lat > S.most.lat){
   # along the new line:
   tmp.coords <- destPoint(tmp.pt, rhumb_bear, line.length)
   
-  # create a point on the land
+  # create a point on the land 3nm is arbitrary
   tmp.coords.onland <- destPoint(tmp.coords, 
                                  rhumb_bear-180, 
-                                 line.length+(nm2km(3)*1000))
+                                 line.length + (nm2km(3)*1000))
   
   # create a temporary line from the land to tmp.coords
   tmp.line <-  st_as_sf(data.frame(X = c(tmp.coords[1,1], 
@@ -243,8 +245,10 @@ while (lat > S.most.lat){
   # find the point 20 nm on rhumb_bear direction
   offshore.pt <- destPoint(inshore.pt, rhumb_bear, line.length)
 
-  new.line <-  st_as_sf(data.frame(X = c(inshore.pt[1,1], offshore.pt[1,1]),
-                                   Y = c(inshore.pt[1,2], offshore.pt[1,2])),
+  new.line <-  st_as_sf(data.frame(X = c(inshore.pt[1,1],
+                                         offshore.pt[1,1]),
+                                   Y = c(inshore.pt[1,2],
+                                         offshore.pt[1,2])),
                         coords = c("X", "Y"),
                         crs = "+proj=longlat +datum=WGS84") %>%
     st_combine() %>%

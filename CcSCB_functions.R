@@ -1391,7 +1391,9 @@ dsm.dev.explained <- function(M){
 # ccData$Y <- ccData$mlat
 # ccData.Sp <- latlon2sp(ccData, center.UTM)
 
-# get lines
+# get line# length of each line from the coast line (m)
+line.length <- nm2km(20) * 1000 
+s
 #lines.2015 <- get.track.lines('Data/tmpTracks_2015.txt')
 # Distance is in nm
 # lines.2015 <- get.track.lines('Data/tmpTracks_Nov2016.txt')
