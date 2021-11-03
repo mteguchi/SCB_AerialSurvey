@@ -10,8 +10,8 @@ Adapted from the same named file in the SDB project.
 First load necessary libraries.
 ```{r}
 rm(list=ls())
-save.image <- T
-save.data <- T
+save.image <- F
+save.data <- F
 
 # should move to sf package.
 library(rgdal)
@@ -311,6 +311,25 @@ survey.coords$ID <- seq(1, nrow(survey.coords))
 survey.coords %>% select(ID, lat.W, long.W, lat.E, long.E) -> survey.coords
 ```
 
+Create another output data.frame
+
+```{r}
+survey.coords.2 <- data.frame(Pt = as.character(),
+                              Lat = as.double(),
+                              Lon = as.double())
+c <- 1
+for (k in 1:nrow(survey.coords)){
+  survey.coords.2[c,1] <- paste0(survey.coords[k,1], "E")
+  survey.coords.2[c,2:3] <- c(survey.coords[k, "lat.E"], 
+                              survey.coords[k, "long.E"])
+  survey.coords.2[c+1,1] <- paste0(survey.coords[k,1], "W")
+  survey.coords.2[c+1,2:3] <- c(survey.coords[k, "lat.W"], 
+                             survey.coords[k, "long.W"])
+  c <- c + 2  
+}
+
+
+```
 
 
 Once W and E ends are created, plot them on a map.
@@ -359,6 +378,38 @@ if (save.image) {
                           km2nm(dlines/1000), 'nm_', Sys.Date(), '.csv'),
             append = F, quote = F, row.names = F, col.names = T)
 
+  WP.file <- paste0("data/waypoints_",
+                    km2nm(dlines/1000), 
+                    'nm_', Sys.Date(), '.csv')
+              
+  write_csv(survey.coords.2, 
+            file = WP.file)
+  
+  tmp.names <- read_csv(WP.file, 
+                        col_types = cols(Pt = col_character(),
+                                         Lat = col_double(),
+                                         Lon = col_double())) %>%
+    transmute(Pt = Pt,
+              Lat = as.character(Lat),
+              Lon = as.character(Lon)) %>% 
+    apply(MARGIN = 1, 
+          FUN = function(x){ paste0(x[1], ", ", 
+                                    substr(x[2], 1, 7), ", ",
+                                    substr(x[3], 1, 9))})
+  
+  survey.coords.2.sf <- st_as_sf(survey.coords.2, 
+                                 coords = c("Lon", "Lat"))
+  
+  survey.coords.2.sp <- as(survey.coords.2.sf, "Spatial")
+  maptools::kmlPoints(survey.coords.2.sp,
+                      kmlfile = paste0("data/waypoints_",
+                                       km2nm(dlines/1000), 
+                                       'nm_', Sys.Date(), '.kml'),
+                      description = "Track lines waypoints",
+                      name = tmp.names,
+                      icon = "http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png")
+  
+  
 }
 
 ```
