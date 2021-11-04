@@ -10,11 +10,11 @@ Adapted from the same named file in the SDB project.
 First load necessary libraries.
 ```{r}
 rm(list=ls())
-save.image <- F
+save.image <- T
 save.data <- F
 
 # should move to sf package.
-library(rgdal)
+#library(rgdal)
 library(sp)
 library(geosphere)
 library(rgeos)
@@ -101,6 +101,9 @@ if (length(grep("Documents", home.dir)) != 0){
 } else {
   home.dir <- home.dir
 }
+
+if (substr(home.dir, nchar(home.dir), nchar(home.dir)) != "/")
+  home.dir <- paste0(home.dir, "/")
 
 fishery.closure.2021.10.08 <- data.frame(X = c(-(118+6/60), 
                                                -(118+10/60), 
