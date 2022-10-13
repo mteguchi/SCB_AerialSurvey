@@ -10,7 +10,7 @@ Adapted from the same named file in the SDB project.
 First load necessary libraries.
 ```{r}
 rm(list=ls())
-save.image <- T
+save.image <- F
 save.data <- F
 
 # should move to sf package.
